@@ -76,10 +76,14 @@ jobs:
           # integer before passing it to `gh`. GitHub's schema already
           # enforces this for both pull_request.number and the
           # workflow_dispatch number-typed input, but a stray value
-          # (or a leading dash) here would otherwise be parsed as a
-          # gh option flag.
+          # (a leading dash, "0", "01", etc.) would otherwise be
+          # parsed as a gh option flag or accepted as a non-existent
+          # PR. The pattern matches a non-zero leading digit followed
+          # by any digits — rejects empty input, leading zeros, and
+          # "0" itself.
           case "$PR_NUMBER" in
-            '' | *[!0-9]*)
+            [1-9][0-9]*) ;; # positive integer — proceed
+            *)
               {
                 echo "## ❌ Invalid PR number: \`${PR_NUMBER}\`"
                 echo ""
