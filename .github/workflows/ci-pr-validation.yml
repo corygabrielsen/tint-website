@@ -73,25 +73,23 @@ jobs:
           fi
 
           # Defense in depth: validate the PR number is a positive
-          # integer before passing it to `gh`. GitHub's schema already
-          # enforces this for both pull_request.number and the
-          # workflow_dispatch number-typed input, but a stray value
-          # (a leading dash, "0", "01", etc.) would otherwise be
-          # parsed as a gh option flag or accepted as a non-existent
-          # PR. The pattern matches a non-zero leading digit followed
-          # by any digits — rejects empty input, leading zeros, and
-          # "0" itself.
-          case "$PR_NUMBER" in
-            [1-9][0-9]*) ;; # positive integer — proceed
-            *)
-              {
-                echo "## ❌ Invalid PR number: \`${PR_NUMBER}\`"
-                echo ""
-                echo "Expected a positive integer."
-              } >>"$GITHUB_STEP_SUMMARY"
-              exit 1
-              ;;
-          esac
+          # integer before passing it to `gh`. GitHub's schema
+          # already enforces this for both pull_request.number and
+          # the workflow_dispatch number-typed input, but a stray
+          # value (a leading dash, "0", "01", etc.) would otherwise
+          # be parsed as a gh option flag or accepted as a non-
+          # existent PR. Bash regex (not shell glob) — a glob like
+          # `[1-9][0-9]*` requires a minimum of 2 chars and rejects
+          # single-digit numbers; the regex below correctly accepts
+          # any positive integer.
+          if [[ ! "$PR_NUMBER" =~ ^[1-9][0-9]*$ ]]; then
+            {
+              echo "## ❌ Invalid PR number: \`${PR_NUMBER}\`"
+              echo ""
+              echo "Expected a positive integer."
+            } >>"$GITHUB_STEP_SUMMARY"
+            exit 1
+          fi
 
           if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
             # Fail fast if `gh pr view` fails — otherwise an empty
