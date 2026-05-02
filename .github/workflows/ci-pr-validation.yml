@@ -1,0 +1,44 @@
+name: "CI: PR Title and Description"
+
+# Validates the PR title and body against the same 50/72 rule the
+# commit-msg pre-commit hook enforces. On squash merge, GitHub uses
+# the PR title (with " (#N)" appended) as the commit subject and the
+# PR body as the commit body — so this gate ensures the merged commit
+# on master complies regardless of what was in any local commit.
+#
+# We check out the base branch (master) so the validator script we run
+# is the trusted version, not whatever is in the PR head. PR title/body
+# are pulled from the event payload via env: vars — that avoids both an
+# extra `gh pr view` round-trip and any shell-injection risk from
+# interpolating user input directly into the run block.
+
+on:
+  pull_request:
+    types: [opened, edited, reopened, synchronize]
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    name: Validate PR Title and Description
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.base_ref }}
+
+      - name: Validate against 50/72 rule
+        env:
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          PR_TITLE: ${{ github.event.pull_request.title }}
+          PR_BODY: ${{ github.event.pull_request.body }}
+        run: |
+          # Construct the subject as GitHub will on squash merge.
+          SUBJECT="${PR_TITLE} (#${PR_NUMBER})"
+
+          # Pipe the full message (subject + blank line + body) to the
+          # same validator the commit-msg pre-commit hook uses.
+          printf '%s\n\n%s\n' "$SUBJECT" "$PR_BODY" \
+            | scripts/validate-commit-message.sh -
