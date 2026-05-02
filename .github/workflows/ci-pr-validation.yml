@@ -83,8 +83,15 @@ jobs:
           # single-digit numbers; the regex below correctly accepts
           # any positive integer.
           if [[ ! "$PR_NUMBER" =~ ^[1-9][0-9]*$ ]]; then
+            # PR_NUMBER hasn't been validated yet — render it through
+            # indented code (no fence to inject, no inline-code span
+            # to break with embedded backticks).
             {
-              echo "## ❌ Invalid PR number: \`${PR_NUMBER}\`"
+              echo "## ❌ Invalid PR number"
+              echo ""
+              echo "Got:"
+              echo ""
+              printf '%s\n' "$PR_NUMBER" | sed 's/^/    /'
               echo ""
               echo "Expected a positive integer."
             } >>"$GITHUB_STEP_SUMMARY"
@@ -167,6 +174,12 @@ jobs:
             exit 0
           fi
 
+          # Both code-rendered blocks below use indented-code (4-space
+          # prefix) rather than fenced code blocks. The PR title and
+          # the validator output (which echoes the subject) are user-
+          # controlled and could contain ``` that would prematurely
+          # close a fence and corrupt the rendered summary. Indented
+          # code has no terminator to inject.
           {
             echo "## ❌ PR title or body fails the 50/72 rule"
             echo ""
@@ -174,9 +187,7 @@ jobs:
               OVER=$((TITLE_LEN - MAX_TITLE_LEN))
               echo "**Title** \`$BAR\` ❌ ${TITLE_LEN}/${MAX_TITLE_LEN} chars (${OVER} over)"
               echo ""
-              echo '```'
-              printf '%s\n' "$PR_TITLE"
-              echo '```'
+              printf '%s\n' "$PR_TITLE" | sed 's/^/    /'
               echo ""
             else
               echo "**Title** \`$BAR\` ✅ ${TITLE_LEN}/${MAX_TITLE_LEN} chars"
@@ -184,9 +195,7 @@ jobs:
             fi
             echo "**Validator output**"
             echo ""
-            echo '```'
-            cat /tmp/validate.out
-            echo '```'
+            sed 's/^/    /' /tmp/validate.out
             echo ""
             echo "> **Body:** wrap prose at 72 chars. Exempt: fenced code, markdown tables, URL-bearing lines, indented code, blockquotes."
             echo "> **Title:** drop filler words, abbreviate, use the imperative."
