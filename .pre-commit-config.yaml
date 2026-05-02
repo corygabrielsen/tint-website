@@ -1,0 +1,33 @@
+# Pre-commit hooks configuration
+# See https://pre-commit.com for more information
+#
+# Install hooks: pre-commit install
+# Run manually:  pre-commit run --all-files
+# Skip hooks:    git commit --no-verify
+
+default_install_hook_types: [pre-commit, commit-msg]
+
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v6.0.0
+    hooks:
+      - id: no-commit-to-branch
+        args: [--branch=master]
+      - id: check-added-large-files
+      - id: check-case-conflict
+      - id: check-executables-have-shebangs
+      - id: check-merge-conflict
+      - id: check-yaml
+      - id: detect-private-key
+      - id: end-of-file-fixer
+      - id: mixed-line-ending
+        args: [--fix=lf]
+      - id: trailing-whitespace
+
+  - repo: local
+    hooks:
+      - id: validate-commit-message
+        name: Validate commit message (50/72 rule)
+        entry: scripts/validate-commit-message.sh --no-pr-suffix
+        language: script
+        stages: [commit-msg]
