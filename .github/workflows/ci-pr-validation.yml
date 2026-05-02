@@ -1,23 +1,46 @@
 name: "CI: PR Title and Description"
 
-# Validates the PR title and body against the same 50/72 rule the
-# commit-msg pre-commit hook enforces. On squash merge, GitHub uses
-# the PR title (with " (#N)" appended) as the commit subject and the
-# PR body as the commit body — so this gate ensures the merged commit
-# on master complies regardless of what was in any local commit.
+# Validates the PR title and body against the 50/72 rule that the
+# commit-msg pre-commit hook enforces locally. On squash merge,
+# GitHub uses the PR title (with " (#N)" appended) as the commit
+# subject and the PR body as the commit body — so this gate ensures
+# the merged commit on master complies regardless of what was in any
+# local commit.
 #
-# We check out the base branch (master) so the validator script we run
-# is the trusted version, not whatever is in the PR head. PR title/body
-# are pulled from the event payload via env: vars — that avoids both an
-# extra `gh pr view` round-trip and any shell-injection risk from
-# interpolating user input directly into the run block.
+# Design choices worth preserving when copying:
+#
+#   1. Trusted script. Checks out the base branch (or the repo's
+#      default branch on workflow_dispatch) so the validator script
+#      is always the version on the target branch, not whatever a
+#      contributor put in the PR head.
+#
+#   2. Safe metadata. On pull_request events, title/body/number come
+#      from the event payload via env: vars — no `gh pr view` round-
+#      trip, no GH_TOKEN, and no shell-injection risk from
+#      `${{ }}`-interpolating user-controlled strings into the run
+#      block. The workflow_dispatch path falls back to `gh pr view`
+#      because the dispatch payload doesn't carry PR data.
+#
+#   3. Rich step summary. Renders a unicode progress bar for the
+#      title and the validator's per-line breakdown for body
+#      failures, so reviewers see the verdict on the Checks tab
+#      without expanding run logs.
+#
+# Prerequisite: scripts/validate-commit-message.sh in the repo root.
 
 on:
   pull_request:
     types: [opened, edited, reopened, synchronize]
+  workflow_dispatch:
+    inputs:
+      pr_number:
+        description: "PR number to validate"
+        required: true
+        type: number
 
 permissions:
   contents: read
+  pull-requests: read # used only on workflow_dispatch (gh pr view)
 
 jobs:
   validate:
@@ -27,18 +50,154 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ github.base_ref }}
+          ref: ${{ github.base_ref || github.event.repository.default_branch }}
 
-      - name: Validate against 50/72 rule
+      - name: Validate
         env:
-          PR_NUMBER: ${{ github.event.pull_request.number }}
-          PR_TITLE: ${{ github.event.pull_request.title }}
-          PR_BODY: ${{ github.event.pull_request.body }}
+          # GH_TOKEN is set ONLY on the workflow_dispatch path, where
+          # `gh pr view` needs it. On pull_request runs the env var is
+          # an empty string, preserving the "no GH_TOKEN" property of
+          # the fast path (and matching the design comment above).
+          GH_TOKEN: ${{ github.event_name == 'workflow_dispatch' && github.token || '' }}
+          EVENT_NAME: ${{ github.event_name }}
+          EVENT_NUMBER: ${{ github.event.pull_request.number }}
+          EVENT_TITLE: ${{ github.event.pull_request.title }}
+          EVENT_BODY: ${{ github.event.pull_request.body }}
+          DISPATCH_NUMBER: ${{ inputs.pr_number }}
         run: |
-          # Construct the subject as GitHub will on squash merge.
-          SUBJECT="${PR_TITLE} (#${PR_NUMBER})"
+          # ---------- 1. Resolve PR fields ----------
+          if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
+            PR_NUMBER="$DISPATCH_NUMBER"
+          else
+            PR_NUMBER="$EVENT_NUMBER"
+          fi
 
-          # Pipe the full message (subject + blank line + body) to the
-          # same validator the commit-msg pre-commit hook uses.
-          printf '%s\n\n%s\n' "$SUBJECT" "$PR_BODY" \
-            | scripts/validate-commit-message.sh -
+          # Defense in depth: validate the PR number is a positive
+          # integer before passing it to `gh`. GitHub's schema
+          # already enforces this for both pull_request.number and
+          # the workflow_dispatch number-typed input, but a stray
+          # value (a leading dash, "0", "01", etc.) would otherwise
+          # be parsed as a gh option flag or accepted as a non-
+          # existent PR. Bash regex (not shell glob) — a glob like
+          # `[1-9][0-9]*` requires a minimum of 2 chars and rejects
+          # single-digit numbers; the regex below correctly accepts
+          # any positive integer.
+          if [[ ! "$PR_NUMBER" =~ ^[1-9][0-9]*$ ]]; then
+            # PR_NUMBER hasn't been validated yet — render it through
+            # indented code (no fence to inject, no inline-code span
+            # to break with embedded backticks).
+            {
+              echo "## ❌ Invalid PR number"
+              echo ""
+              echo "Got:"
+              echo ""
+              printf '%s\n' "$PR_NUMBER" | sed 's/^/    /'
+              echo ""
+              echo "Expected a positive integer."
+            } >>"$GITHUB_STEP_SUMMARY"
+            exit 1
+          fi
+
+          if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
+            # Fail fast if `gh pr view` fails — otherwise an empty
+            # title/body would silently pass validation.
+            if ! PR_TITLE=$(gh pr view "$PR_NUMBER" --json title -q '.title // ""'); then
+              echo "## ❌ Failed to fetch PR #${PR_NUMBER} title via \`gh pr view\`" \
+                >>"$GITHUB_STEP_SUMMARY"
+              exit 1
+            fi
+            if ! PR_BODY=$(gh pr view "$PR_NUMBER" --json body -q '.body // ""'); then
+              echo "## ❌ Failed to fetch PR #${PR_NUMBER} body via \`gh pr view\`" \
+                >>"$GITHUB_STEP_SUMMARY"
+              exit 1
+            fi
+          else
+            PR_TITLE="$EVENT_TITLE"
+            PR_BODY="$EVENT_BODY"
+          fi
+
+          # ---------- 2. Run validator ----------
+          # Construct the squash-merge subject and pipe the full
+          # message (subject + blank line + body) to the same script
+          # the local commit-msg pre-commit hook runs.
+          SUBJECT="${PR_TITLE} (#${PR_NUMBER})"
+          if printf '%s\n\n%s\n' "$SUBJECT" "$PR_BODY" \
+                | scripts/validate-commit-message.sh - > /tmp/validate.out 2>&1; then
+            VALIDATION_OK=true
+          else
+            VALIDATION_OK=false
+          fi
+
+          # ---------- 3. Title metrics ----------
+          # The PR title alone (before " (#N)" suffix) is what
+          # contributors edit. Show its length vs the headroom that
+          # leaves: 50 minus the suffix length.
+          SUFFIX=" (#${PR_NUMBER})"
+          MAX_TITLE_LEN=$((50 - ${#SUFFIX}))
+          TITLE_LEN=${#PR_TITLE}
+
+          # ---------- 4. Render progress bar ----------
+          # 25-cell unicode bar. C-style for loop avoids the edge
+          # case where `printf '█%.0s' $(seq 1 0)` spuriously prints
+          # one cell when the count is zero. Bounds-checked against
+          # max <= 0 (which would happen only if the PR-number suffix
+          # were ≥ 50 chars long — absurd, but guarded anyway).
+          render_bar() {
+            local current=$1 max=$2 width=25
+            if [ "$max" -le 0 ]; then
+              local bar="" i
+              for ((i = 0; i < width; i++)); do bar+="█"; done
+              printf '%s' "$bar"
+              return
+            fi
+            local filled=$((current * width / max))
+            [ "$filled" -lt 0 ] && filled=0
+            [ "$filled" -gt "$width" ] && filled=$width
+            local empty=$((width - filled))
+            local bar="" i
+            for ((i = 0; i < filled; i++)); do bar+="█"; done
+            for ((i = 0; i < empty; i++)); do bar+="░"; done
+            printf '%s' "$bar"
+          }
+          BAR=$(render_bar "$TITLE_LEN" "$MAX_TITLE_LEN")
+
+          # ---------- 5. Step summary ----------
+          if [ "$VALIDATION_OK" = "true" ]; then
+            {
+              echo "## ✅ PR title and body valid"
+              echo ""
+              echo "| Field | Status |"
+              echo "| --- | --- |"
+              echo "| Title | \`$BAR\` ${TITLE_LEN}/${MAX_TITLE_LEN} chars |"
+              echo "| Body  | wrapped ≤ 72 chars (markdown structure exempt) |"
+            } >>"$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+
+          # Both code-rendered blocks below use indented-code (4-space
+          # prefix) rather than fenced code blocks. The PR title and
+          # the validator output (which echoes the subject) are user-
+          # controlled and could contain ``` that would prematurely
+          # close a fence and corrupt the rendered summary. Indented
+          # code has no terminator to inject.
+          {
+            echo "## ❌ PR title or body fails the 50/72 rule"
+            echo ""
+            if [ "$TITLE_LEN" -gt "$MAX_TITLE_LEN" ]; then
+              OVER=$((TITLE_LEN - MAX_TITLE_LEN))
+              echo "**Title** \`$BAR\` ❌ ${TITLE_LEN}/${MAX_TITLE_LEN} chars (${OVER} over)"
+              echo ""
+              printf '%s\n' "$PR_TITLE" | sed 's/^/    /'
+              echo ""
+            else
+              echo "**Title** \`$BAR\` ✅ ${TITLE_LEN}/${MAX_TITLE_LEN} chars"
+              echo ""
+            fi
+            echo "**Validator output**"
+            echo ""
+            sed 's/^/    /' /tmp/validate.out
+            echo ""
+            echo "> **Body:** wrap prose at 72 chars. Exempt: fenced code, markdown tables, URL-bearing lines, indented code, blockquotes."
+            echo "> **Title:** drop filler words, abbreviate, use the imperative."
+          } >>"$GITHUB_STEP_SUMMARY"
+          exit 1
