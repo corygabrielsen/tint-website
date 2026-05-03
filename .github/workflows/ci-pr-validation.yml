@@ -1,11 +1,11 @@
-name: "CI: PR Title and Description"
+name: "CI: PR Title"
 
-# Validates the PR title and body against the 50/72 rule that the
-# commit-msg pre-commit hook enforces locally. On squash merge,
+# Validates the PR title length against the rule that the
+# commit-msg pre-commit hook enforces locally. On squash merge
 # GitHub uses the PR title (with " (#N)" appended) as the commit
-# subject and the PR body as the commit body — so this gate ensures
-# the merged commit on master complies regardless of what was in any
-# local commit.
+# subject — so this gate ensures the merged commit on master fits
+# the 50-char subject budget regardless of what was in any local
+# commit. The body of the PR is unconstrained.
 #
 # Design choices worth preserving when copying:
 #
@@ -14,17 +14,15 @@ name: "CI: PR Title and Description"
 #      is always the version on the target branch, not whatever a
 #      contributor put in the PR head.
 #
-#   2. Safe metadata. On pull_request events, title/body/number come
+#   2. Safe metadata. On pull_request events, title/number come
 #      from the event payload via env: vars — no `gh pr view` round-
 #      trip, no GH_TOKEN, and no shell-injection risk from
 #      `${{ }}`-interpolating user-controlled strings into the run
 #      block. The workflow_dispatch path falls back to `gh pr view`
 #      because the dispatch payload doesn't carry PR data.
 #
-#   3. Rich step summary. Renders a unicode progress bar for the
-#      title and the validator's per-line breakdown for body
-#      failures, so reviewers see the verdict on the Checks tab
-#      without expanding run logs.
+#   3. Rich step summary. Renders a unicode progress bar showing
+#      title length vs the 50 - len(" (#N)") headroom.
 #
 # Prerequisite: scripts/validate-commit-message.sh in the repo root.
 
@@ -44,7 +42,7 @@ permissions:
 
 jobs:
   validate:
-    name: Validate PR Title and Description
+    name: Validate PR Title
     runs-on: ubuntu-latest
 
     steps:
@@ -62,7 +60,6 @@ jobs:
           EVENT_NAME: ${{ github.event_name }}
           EVENT_NUMBER: ${{ github.event.pull_request.number }}
           EVENT_TITLE: ${{ github.event.pull_request.title }}
-          EVENT_BODY: ${{ github.event.pull_request.body }}
           DISPATCH_NUMBER: ${{ inputs.pr_number }}
         run: |
           # ---------- 1. Resolve PR fields ----------
@@ -100,29 +97,21 @@ jobs:
 
           if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
             # Fail fast if `gh pr view` fails — otherwise an empty
-            # title/body would silently pass validation.
+            # title would silently pass validation.
             if ! PR_TITLE=$(gh pr view "$PR_NUMBER" --json title -q '.title // ""'); then
               echo "## ❌ Failed to fetch PR #${PR_NUMBER} title via \`gh pr view\`" \
                 >>"$GITHUB_STEP_SUMMARY"
               exit 1
             fi
-            if ! PR_BODY=$(gh pr view "$PR_NUMBER" --json body -q '.body // ""'); then
-              echo "## ❌ Failed to fetch PR #${PR_NUMBER} body via \`gh pr view\`" \
-                >>"$GITHUB_STEP_SUMMARY"
-              exit 1
-            fi
           else
             PR_TITLE="$EVENT_TITLE"
-            PR_BODY="$EVENT_BODY"
           fi
 
-          # ---------- 2. Run validator ----------
-          # Construct the squash-merge subject and pipe the full
-          # message (subject + blank line + body) to the same script
-          # the local commit-msg pre-commit hook runs.
+          # ---------- 2. Run validator (subject only) ----------
+          # The validator only checks the subject line, so we pipe
+          # just the squash-merge subject — no body needed.
           SUBJECT="${PR_TITLE} (#${PR_NUMBER})"
-          if printf '%s\n\n%s\n' "$SUBJECT" "$PR_BODY" \
-                | scripts/validate-commit-message.sh - > /tmp/validate.out 2>&1; then
+          if printf '%s\n' "$SUBJECT" | scripts/validate-commit-message.sh -; then
             VALIDATION_OK=true
           else
             VALIDATION_OK=false
@@ -164,40 +153,24 @@ jobs:
           # ---------- 5. Step summary ----------
           if [ "$VALIDATION_OK" = "true" ]; then
             {
-              echo "## ✅ PR title and body valid"
+              echo "## ✅ PR title valid"
               echo ""
-              echo "| Field | Status |"
-              echo "| --- | --- |"
-              echo "| Title | \`$BAR\` ${TITLE_LEN}/${MAX_TITLE_LEN} chars |"
-              echo "| Body  | wrapped ≤ 72 chars (markdown structure exempt) |"
+              echo "\`$BAR\` ${TITLE_LEN}/${MAX_TITLE_LEN} chars"
             } >>"$GITHUB_STEP_SUMMARY"
             exit 0
           fi
 
-          # Both code-rendered blocks below use indented-code (4-space
-          # prefix) rather than fenced code blocks. The PR title and
-          # the validator output (which echoes the subject) are user-
-          # controlled and could contain ``` that would prematurely
-          # close a fence and corrupt the rendered summary. Indented
-          # code has no terminator to inject.
+          # PR title is user-controlled and could contain ``` that
+          # would prematurely close a fence; render it through
+          # indented code (4-space prefix) instead.
           {
-            echo "## ❌ PR title or body fails the 50/72 rule"
+            echo "## ❌ PR title too long"
             echo ""
-            if [ "$TITLE_LEN" -gt "$MAX_TITLE_LEN" ]; then
-              OVER=$((TITLE_LEN - MAX_TITLE_LEN))
-              echo "**Title** \`$BAR\` ❌ ${TITLE_LEN}/${MAX_TITLE_LEN} chars (${OVER} over)"
-              echo ""
-              printf '%s\n' "$PR_TITLE" | sed 's/^/    /'
-              echo ""
-            else
-              echo "**Title** \`$BAR\` ✅ ${TITLE_LEN}/${MAX_TITLE_LEN} chars"
-              echo ""
-            fi
-            echo "**Validator output**"
+            OVER=$((TITLE_LEN - MAX_TITLE_LEN))
+            echo "\`$BAR\` ❌ ${TITLE_LEN}/${MAX_TITLE_LEN} chars (${OVER} over)"
             echo ""
-            sed 's/^/    /' /tmp/validate.out
+            printf '%s\n' "$PR_TITLE" | sed 's/^/    /'
             echo ""
-            echo "> **Body:** wrap prose at 72 chars. Exempt: fenced code, markdown tables, URL-bearing lines, indented code, blockquotes."
-            echo "> **Title:** drop filler words, abbreviate, use the imperative."
+            echo "> **Tips:** drop filler words (*a*, *the*), abbreviate (*config* not *configuration*), use the imperative."
           } >>"$GITHUB_STEP_SUMMARY"
           exit 1

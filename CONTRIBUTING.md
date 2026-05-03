@@ -12,10 +12,8 @@
 **Body** (separated from subject by a blank line):
 
 1. Explain what and why, not how
-2. Hard-wrap prose at 72 characters
-3. Markdown is welcome — fenced code blocks, tables, URL-bearing
-   lines, indented code, and blockquotes are exempt from the
-   72-character wrap
+2. Markdown is welcome — use code blocks, tables, headers freely
+3. Body length is unconstrained
 
-Both rules are enforced by the `commit-msg` pre-commit hook
-(see `scripts/validate-commit-message.sh`).
+The subject-line rule is enforced by the `commit-msg` pre-commit
+hook (see `scripts/validate-commit-message.sh`).
