@@ -56,7 +56,28 @@ SUBJECT=$(printf '%s\n' "$COMMIT_MSG" | head -n1)
 subject_len=${#SUBJECT}
 
 MAX_WITH_SUFFIX=50
-MAX_NO_SUFFIX=42
+
+# When the subject doesn't yet have a " (#N)" suffix, leave room
+# for GitHub to append one on squash merge. Width depends on the
+# digit count of the next PR number — walk recent commits to find
+# the latest in-use suffix, account for rollover (e.g. "99" → 3
+# digits because "100" comes next), and reserve accordingly. Falls
+# back to a 4-digit assumption when git is unavailable or no PR
+# suffix is in history.
+MAX_NO_SUFFIX=42 # 50 - len(" (#NNNN)") = 50 - 8 = 42
+if command -v git >/dev/null 2>&1 && git rev-parse --git-dir >/dev/null 2>&1; then
+    _latest_pr=$(git log --oneline -50 2>/dev/null \
+        | sed -n 's/.* (#\([0-9]\{1,\}\))$/\1/p' \
+        | head -1)
+    if [ -n "$_latest_pr" ]; then
+        _digits=${#_latest_pr}
+        _all_nines=$(printf '%0*d' "$_digits" 0 | tr '0' '9')
+        if [ "$_latest_pr" = "$_all_nines" ]; then
+            _digits=$((_digits + 1))
+        fi
+        MAX_NO_SUFFIX=$((MAX_WITH_SUFFIX - 4 - _digits))
+    fi
+fi
 
 if [ -z "$SUBJECT" ]; then
     {
