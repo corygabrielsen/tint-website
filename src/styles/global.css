@@ -97,6 +97,122 @@ pre {
   overflow-x: auto;
 }
 
+.install-tabs {
+  border: 1px solid var(--border);
+  background: var(--code-bg);
+}
+
+.install-tabs input[type="radio"] {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  border: 0;
+}
+
+.install-tabs .tabs {
+  display: flex;
+  border-bottom: 1px solid var(--border);
+  font-family: var(--mono);
+  font-size: 0.875rem;
+}
+
+.install-tabs .tabs label {
+  padding: 0.5rem 1rem;
+  cursor: pointer;
+  color: var(--muted);
+  border-right: 1px solid var(--border);
+  user-select: none;
+}
+
+.install-tabs .tabs label:hover {
+  color: var(--fg);
+}
+
+.install-tabs:has(#install-brew:checked) label[for="install-brew"],
+.install-tabs:has(#install-curl:checked) label[for="install-curl"] {
+  color: var(--fg);
+  background: var(--bg);
+}
+
+.install-tabs:has(#install-brew:focus-visible) label[for="install-brew"],
+.install-tabs:has(#install-curl:focus-visible) label[for="install-curl"] {
+  outline: 2px solid var(--fg);
+  outline-offset: -2px;
+}
+
+.install-tabs .blocks .block {
+  position: relative;
+  display: none;
+}
+
+.install-tabs:has(#install-brew:checked) .blocks .block:nth-child(1),
+.install-tabs:has(#install-curl:checked) .blocks .block:nth-child(2) {
+  display: block;
+}
+
+.install-tabs .block pre {
+  border: 0;
+  background: transparent !important;
+  padding: 0.75rem 1rem;
+  margin: 0;
+  font-family: var(--mono);
+  font-size: 0.875rem;
+  overflow-x: auto;
+}
+
+.install-tabs .block pre code {
+  font-family: inherit;
+}
+
+/* Shiki emits inline styles for the light theme; !important is required to swap to dark. */
+@media (prefers-color-scheme: dark) {
+  .install-tabs .block .astro-code,
+  .install-tabs .block .astro-code span {
+    color: var(--shiki-dark) !important;
+    background-color: var(--shiki-dark-bg) !important;
+  }
+}
+
+.install-tabs .copy {
+  position: absolute;
+  top: 0.4rem;
+  right: 0.5rem;
+  width: 1.75rem;
+  height: 1.75rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: 0;
+  color: var(--muted);
+  cursor: pointer;
+  transition:
+    color 0.15s,
+    background 0.15s;
+}
+
+.install-tabs .copy:hover {
+  color: var(--fg);
+  background: var(--border);
+}
+
+.install-tabs .copy .icon-check {
+  display: none;
+}
+
+.install-tabs .copy.copied .icon-copy {
+  display: none;
+}
+
+.install-tabs .copy.copied .icon-check {
+  display: block;
+  color: var(--fg);
+}
+
 .demo-placeholder {
   aspect-ratio: 16 / 9;
   border: 1px dashed var(--border);
@@ -114,4 +230,18 @@ a {
 
 a:hover {
   color: var(--muted);
+}
+
+.github-link {
+  text-align: center;
+}
+
+.github-link a {
+  display: inline-flex;
+  color: var(--muted);
+  transition: color 0.15s;
+}
+
+.github-link a:hover {
+  color: var(--fg);
 }
