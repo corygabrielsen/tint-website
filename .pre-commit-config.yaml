@@ -11,8 +11,15 @@ repos:
   - repo: https://github.com/pre-commit/pre-commit-hooks
     rev: v6.0.0
     hooks:
+      # Block commits to branches that don't follow the
+      # Conventional Commits pattern documented in CONTRIBUTING.md.
+      # `master` and detached HEAD are exempt — `master` matches the
+      # regex's escape clause; detached HEAD makes the hook's
+      # `git symbolic-ref` call fail and the hook treats that as
+      # "not on a branch" and silently passes.
       - id: no-commit-to-branch
-        args: [--branch=master]
+        args:
+          - "--pattern=^(?!(build|chore|ci|docs|feat|fix|perf|refactor|revert|style|test)/[a-z0-9-]+$|master$).*$"
       - id: check-added-large-files
       - id: check-case-conflict
       - id: check-executables-have-shebangs
@@ -26,13 +33,6 @@ repos:
 
   - repo: local
     hooks:
-      - id: validate-branch-name
-        name: Validate branch name (Conventional Commits)
-        entry: scripts/validate-branch-name.sh
-        language: script
-        pass_filenames: false
-        always_run: true
-
       - id: validate-commit-message
         name: Validate commit message (subject line)
         entry: scripts/validate-commit-message.sh --no-pr-suffix
