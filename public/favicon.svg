@@ -1,12 +1,18 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">
-  <rect width="32" height="32" rx="6" fill="#1d4ed8" />
-  <text
-    x="16"
-    y="22"
-    font-family="ui-monospace, SFMono-Regular, monospace"
-    font-size="20"
-    font-weight="700"
-    fill="#ffffff"
-    text-anchor="middle"
-  >t</text>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" shape-rendering="crispEdges">
+  <rect x="0" y="0" width="4" height="4" fill="#5EAC53" />
+  <rect x="4" y="0" width="4" height="4" fill="#80AC53" />
+  <rect x="8" y="0" width="4" height="4" fill="#A1AC53" />
+  <rect x="12" y="0" width="4" height="4" fill="#AC5353" />
+  <rect x="0" y="4" width="4" height="4" fill="#53AC69" />
+  <rect x="4" y="4" width="4" height="4" fill="#53AC8B" />
+  <rect x="8" y="4" width="4" height="4" fill="#AC9653" />
+  <rect x="12" y="4" width="4" height="4" fill="#AC7453" />
+  <rect x="0" y="8" width="4" height="4" fill="#538BAC" />
+  <rect x="4" y="8" width="4" height="4" fill="#53ACAC" />
+  <rect x="8" y="8" width="4" height="4" fill="#A153AC" />
+  <rect x="12" y="8" width="4" height="4" fill="#AC5396" />
+  <rect x="0" y="12" width="4" height="4" fill="#5369AC" />
+  <rect x="4" y="12" width="4" height="4" fill="#5E53AC" />
+  <rect x="8" y="12" width="4" height="4" fill="#8053AC" />
+  <rect x="12" y="12" width="4" height="4" fill="#AC5374" />
 </svg>
