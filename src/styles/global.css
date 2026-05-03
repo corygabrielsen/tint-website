@@ -160,25 +160,24 @@ a:hover {
 .install-tabs {
   border: 1px solid var(--border);
   background: var(--code-bg);
-  /* fieldset's default min-inline-size: min-content would let a long install
-     command stretch the widget past the viewport on narrow screens. Reset
-     to 0 so the inner <pre> scrolls horizontally instead of the page. */
+  /* fieldset and flex-item defaults treat min-inline-size as min-content,
+     which lets long install commands stretch the widget past the viewport.
+     Resetting both lets the inner <pre> handle the horizontal scroll. */
+  min-width: 0;
   min-inline-size: 0;
 }
 
-/* Visually hide radios while keeping them keyboard-accessible: Tab focuses
-   the radio, arrow keys switch between them. Reuses the .sr-only pattern
-   inline because we also need to anchor the radios out of normal flow. */
-.install-tabs input[type="radio"] {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  margin: -1px;
-  padding: 0;
-  overflow: hidden;
-  clip: rect(0, 0, 0, 0);
-  border: 0;
+/* Each link in the chain (panels → panel → pre) needs min-width: 0 so the
+   intrinsic min-content of the unwrapped pre line doesn't propagate up
+   and force the whole widget to grow past the panel. */
+.install-tabs .panels,
+.install-tabs .panel {
+  min-width: 0;
 }
+
+/* Radios are visually hidden via the .sr-only utility on the elements
+   themselves. They remain keyboard-accessible (Tab focuses, arrow keys
+   switch) and the :has()/:nth-of-type rules below still match by type. */
 
 .install-tabs .tabs {
   display: flex;

@@ -6,11 +6,14 @@ import GitHubMark from '~/components/GitHubMark.astro';
 
 const repoUrl = 'https://github.com/corygabrielsen/tint';
 
+// Install lines stay tight on purpose: mkdir/PATH guidance live in the tint
+// README, not here. `brew install user/repo/formula` auto-taps the third-party
+// tap on first install, so no `brew tap` step is needed.
 const installCommands = [
   { label: 'brew', code: 'brew install corygabrielsen/tint/tint' },
   {
     label: 'curl',
-    code: `mkdir -p ~/.local/bin && curl -fsSL ${repoUrl}/releases/latest/download/tint -o ~/.local/bin/tint && chmod +x ~/.local/bin/tint`,
+    code: `curl -fsSL ${repoUrl}/releases/latest/download/tint -o ~/.local/bin/tint && chmod +x ~/.local/bin/tint`,
   },
 ];
 ---
@@ -29,7 +32,7 @@ const installCommands = [
     <fieldset class="install-tabs">
       <legend class="sr-only">Install method</legend>
       {installCommands.map((cmd, i) => (
-        <input type="radio" name="install" id={`install-${cmd.label}`} checked={i === 0} />
+        <input class="sr-only" type="radio" name="install" id={`install-${cmd.label}`} checked={i === 0} />
       ))}
       <div class="tabs">
         {installCommands.map((cmd) => (
