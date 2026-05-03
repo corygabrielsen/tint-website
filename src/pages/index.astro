@@ -10,7 +10,7 @@ const installCommands = [
   { label: 'brew', code: 'brew install corygabrielsen/tint/tint' },
   {
     label: 'curl',
-    code: `curl -fsSL ${repoUrl}/releases/latest/download/tint -o ~/.local/bin/tint && chmod +x ~/.local/bin/tint`,
+    code: `mkdir -p ~/.local/bin && curl -fsSL ${repoUrl}/releases/latest/download/tint -o ~/.local/bin/tint && chmod +x ~/.local/bin/tint`,
   },
 ];
 ---

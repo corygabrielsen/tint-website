@@ -160,6 +160,10 @@ a:hover {
 .install-tabs {
   border: 1px solid var(--border);
   background: var(--code-bg);
+  /* fieldset's default min-inline-size: min-content would let a long install
+     command stretch the widget past the viewport on narrow screens. Reset
+     to 0 so the inner <pre> scrolls horizontally instead of the page. */
+  min-inline-size: 0;
 }
 
 /* Visually hide radios while keeping them keyboard-accessible: Tab focuses
