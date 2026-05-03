@@ -49,6 +49,11 @@ h6 {
   overflow-wrap: break-word;
 }
 
+fieldset {
+  border: 0;
+  padding: 0;
+}
+
 /* =============================================================================
    2. Theme tokens
    light-dark() resolves against `color-scheme: light dark`, so each token
@@ -65,10 +70,43 @@ h6 {
   --border: light-dark(#e0e0e0, #27272a);
 
   --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+
+  /* Shiki tokens for Astro <Code theme="css-variables" />. Mirrors GitHub's
+     light/dark palette so we can avoid Shiki's inline-style override and
+     swap themes through light-dark() like everything else. */
+  --astro-code-foreground: light-dark(#24292e, #e1e4e8);
+  --astro-code-background: transparent;
+  --astro-code-token-comment: light-dark(#6a737d, #8b949e);
+  --astro-code-token-keyword: light-dark(#d73a49, #f97583);
+  --astro-code-token-function: light-dark(#6f42c1, #b392f0);
+  --astro-code-token-string: light-dark(#032f62, #9ecbff);
+  --astro-code-token-string-expression: light-dark(#032f62, #9ecbff);
+  --astro-code-token-constant: light-dark(#005cc5, #79b8ff);
+  --astro-code-token-parameter: light-dark(#24292e, #e1e4e8);
+  --astro-code-token-link: light-dark(#032f62, #9ecbff);
+  --astro-code-token-punctuation: light-dark(#24292e, #e1e4e8);
 }
 
 /* =============================================================================
-   3. Page chrome
+   3. Utilities
+   ========================================================================== */
+
+/* Visually hidden but still announced by screen readers. Used for the install
+   widget's <legend> and the copy button's aria-live status region. */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* =============================================================================
+   4. Page chrome
    ========================================================================== */
 
 body {
@@ -85,19 +123,23 @@ main {
   gap: 2rem;
 }
 
+header {
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
 h1 {
   font-family: var(--mono);
   font-size: 3rem;
   font-weight: 700;
   letter-spacing: -0.02em;
-  text-align: center;
 }
 
 .tagline {
   font-size: 1.125rem;
   color: var(--muted);
-  margin-top: -1.5rem;
-  text-align: center;
 }
 
 a {
@@ -109,10 +151,10 @@ a:hover {
 }
 
 /* =============================================================================
-   4. Install tabs
+   5. Install tabs
    Pure-CSS tabbed code blocks: hidden radio inputs drive the active state via
-   :has() + :nth-of-type, so adding a new tab requires zero JavaScript — just
-   another <input>/<label>/<panel> trio in the markup.
+   :has() + :nth-of-type. Adding a new tab requires another :nth pair below
+   plus another entry in `installCommands`.
    ========================================================================== */
 
 .install-tabs {
@@ -121,8 +163,8 @@ a:hover {
 }
 
 /* Visually hide radios while keeping them keyboard-accessible: Tab focuses
-   the radio, arrow keys switch between them. clip:rect is the canonical
-   visually-hidden pattern that doesn't drop tab order or screen-reader access. */
+   the radio, arrow keys switch between them. Reuses the .sr-only pattern
+   inline because we also need to anchor the radios out of normal flow. */
 .install-tabs input[type="radio"] {
   position: absolute;
   width: 1px;
@@ -178,10 +220,8 @@ a:hover {
   display: block;
 }
 
-/* Strip the global pre styling Astro's <Code> would otherwise inherit. */
 .install-tabs .panel pre {
   border: 0;
-  background: transparent !important;
   padding: 0.75rem 1rem;
   margin: 0;
   font-family: var(--mono);
@@ -191,16 +231,6 @@ a:hover {
 
 .install-tabs .panel pre code {
   font-family: inherit;
-}
-
-/* Shiki emits inline styles for the light theme; !important is the only way
-   to override inline-style specificity for the dark-mode swap. */
-@media (prefers-color-scheme: dark) {
-  .install-tabs .panel .astro-code,
-  .install-tabs .panel .astro-code span {
-    color: var(--shiki-dark) !important;
-    background-color: var(--shiki-dark-bg) !important;
-  }
 }
 
 /* Copy button — positioned over the top-right of each panel. */
@@ -227,6 +257,11 @@ a:hover {
   background: var(--border);
 }
 
+.install-tabs .copy:focus-visible {
+  outline: 2px solid var(--fg);
+  outline-offset: 2px;
+}
+
 /* Default: copy icon visible, check hidden. JS adds .copied for 1.2s on
    successful clipboard write to flip them. */
 .install-tabs .copy .icon-check {
@@ -243,7 +278,7 @@ a:hover {
 }
 
 /* =============================================================================
-   5. Demo placeholder
+   6. Demo placeholder
    ========================================================================== */
 
 .demo-placeholder {
@@ -258,7 +293,7 @@ a:hover {
 }
 
 /* =============================================================================
-   6. GitHub link
+   7. GitHub link
    ========================================================================== */
 
 .github-link {
@@ -276,7 +311,7 @@ a:hover {
 }
 
 /* =============================================================================
-   7. Copyright
+   8. Copyright
    color-mix at 25% fg / 75% bg fades the line so it sits below the GitHub
    link's visual weight without disappearing.
    ========================================================================== */

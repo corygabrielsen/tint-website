@@ -14,17 +14,28 @@ const { code } = Astro.props;
   <svg class="icon-check" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
     <polyline points="20 6 9 17 4 12" />
   </svg>
+  <span class="sr-only" aria-live="polite"></span>
 </button>
 
 <script>
   // data-code carries the source string verbatim — querying the rendered <code>
   // would pick up Shiki's HTML-escaped version (& → &amp; etc.).
   document.querySelectorAll<HTMLButtonElement>('button.copy[data-code]').forEach((btn) => {
-    btn.addEventListener('click', () => {
-      navigator.clipboard.writeText(btn.dataset.code ?? '').then(() => {
+    const status = btn.querySelector<HTMLSpanElement>('.sr-only');
+
+    btn.addEventListener('click', async () => {
+      try {
+        await navigator.clipboard.writeText(btn.dataset.code ?? '');
         btn.classList.add('copied');
-        setTimeout(() => btn.classList.remove('copied'), 1200);
-      });
+        if (status) status.textContent = 'Copied';
+        setTimeout(() => {
+          btn.classList.remove('copied');
+          if (status) status.textContent = '';
+        }, 1200);
+      } catch (err) {
+        if (status) status.textContent = 'Copy failed';
+        console.error('Clipboard write failed:', err);
+      }
     });
   });
 </script>

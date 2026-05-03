@@ -5,12 +5,10 @@ import CopyButton from '~/components/CopyButton.astro';
 import GitHubMark from '~/components/GitHubMark.astro';
 
 const repoUrl = 'https://github.com/corygabrielsen/tint';
-const themes = { light: 'github-light', dark: 'github-dark' } as const;
 
 const installCommands = [
-  { id: 'install-brew', label: 'brew', code: 'brew install corygabrielsen/tint/tint' },
+  { label: 'brew', code: 'brew install corygabrielsen/tint/tint' },
   {
-    id: 'install-curl',
     label: 'curl',
     code: `curl -fsSL ${repoUrl}/releases/latest/download/tint -o ~/.local/bin/tint && chmod +x ~/.local/bin/tint`,
   },
@@ -19,27 +17,34 @@ const installCommands = [
 
 <Layout title="tint">
   <main>
-    <h1>tint</h1>
-    <p class="tagline">Terminal theme switcher.</p>
+    <header>
+      <h1>tint</h1>
+      <p class="tagline">Terminal theme switcher.</p>
+    </header>
 
-    <div class="install-tabs">
+    {/* Pure-CSS tabbed code blocks. The radio inputs MUST sit as direct
+        siblings of `.tabs` and `.panels` so the CSS sibling combinator can
+        match the active tab/panel — that's why this widget renders three
+        separate `installCommands.map()` passes instead of one. */}
+    <fieldset class="install-tabs">
+      <legend class="sr-only">Install method</legend>
       {installCommands.map((cmd, i) => (
-        <input type="radio" name="install" id={cmd.id} checked={i === 0} />
+        <input type="radio" name="install" id={`install-${cmd.label}`} checked={i === 0} />
       ))}
       <div class="tabs">
         {installCommands.map((cmd) => (
-          <label for={cmd.id}>{cmd.label}</label>
+          <label for={`install-${cmd.label}`}>{cmd.label}</label>
         ))}
       </div>
       <div class="panels">
         {installCommands.map((cmd) => (
           <div class="panel">
             <CopyButton code={cmd.code} />
-            <Code code={cmd.code} lang="sh" themes={themes} />
+            <Code code={cmd.code} lang="sh" theme="css-variables" />
           </div>
         ))}
       </div>
-    </div>
+    </fieldset>
 
     <div class="demo-placeholder">Demo coming soon</div>
 
@@ -49,6 +54,6 @@ const installCommands = [
       </a>
     </p>
 
-    <p class="copyright">© {new Date().getFullYear()} Cory Gabrielsen</p>
+    <p class="copyright">© 2026 Cory Gabrielsen</p>
   </main>
 </Layout>
