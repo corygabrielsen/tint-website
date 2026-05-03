@@ -2,7 +2,7 @@
 
 ## Branching Strategy
 
-All feature branches merge directly into `master`:
+All topic branches merge directly into `master`:
 
 ```
 <type>/* ──► master
@@ -12,11 +12,17 @@ All feature branches merge directly into `master`:
   linear history. CI must pass. Resolve all review threads before
   merging.
 
-Always branch from and target `master` for feature work.
+Always branch from and target `master`.
 
 ## Branch Names
 
-Format: `<type>/<short-description>`. The description is lowercase ASCII letters, digits, and hyphens.
+Format: `<type>/<short-description>`. The description is lowercase ASCII letters, digits, and hyphens. The full allowlist regex:
+
+```
+^(build|chore|ci|docs|feat|fix|perf|refactor|revert|style|test)/[a-z0-9-]+$
+```
+
+This regex is the authoritative rule. The pre-commit hook enforces it locally (in inverted form, via `no-commit-to-branch --pattern`); the GitHub Repository Ruleset enforces it server-side at branch-creation time.
 
 Conventional Commits types:
 
