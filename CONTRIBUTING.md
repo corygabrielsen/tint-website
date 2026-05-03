@@ -1,5 +1,37 @@
 # Contributing
 
+## Branching Strategy
+
+All feature branches merge directly into `master`:
+
+```
+feat/* ──► master
+```
+
+- **master**: main integration branch. PRs use squash merge for
+  linear history. CI must pass. Resolve all review threads before
+  merging.
+
+Always branch from and target `master` for feature work.
+
+## Branch Names
+
+Use lowercase with hyphens: `<type>/<short-description>`.
+
+Conventional Commits types:
+
+- `build/` — build system changes
+- `chore/` — maintenance tasks
+- `ci/` — continuous integration changes
+- `docs/` — documentation
+- `feat/` — new functionality
+- `fix/` — bug fixes
+- `perf/` — performance improvements
+- `refactor/` — code restructuring without behavior change
+- `revert/` — reverts
+- `style/` — formatting and style changes
+- `test/` — adding or updating tests
+
 ## Commit Messages
 
 **Subject line:**

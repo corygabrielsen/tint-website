@@ -26,6 +26,13 @@ repos:
 
   - repo: local
     hooks:
+      - id: validate-branch-name
+        name: Validate branch name (Conventional Commits)
+        entry: scripts/validate-branch-name.sh
+        language: script
+        pass_filenames: false
+        always_run: true
+
       - id: validate-commit-message
         name: Validate commit message (subject line)
         entry: scripts/validate-commit-message.sh --no-pr-suffix
