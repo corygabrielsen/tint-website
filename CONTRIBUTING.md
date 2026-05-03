@@ -5,7 +5,7 @@
 All feature branches merge directly into `master`:
 
 ```
-feat/* ──► master
+<type>/* ──► master
 ```
 
 - **master**: main integration branch. PRs use squash merge for
@@ -16,7 +16,7 @@ Always branch from and target `master` for feature work.
 
 ## Branch Names
 
-Use lowercase with hyphens: `<type>/<short-description>`.
+Format: `<type>/<short-description>`. The description is lowercase ASCII letters, digits, and hyphens.
 
 Conventional Commits types:
 

@@ -4,7 +4,8 @@
 #
 # Pattern: <type>/<short-description>
 #   - <type> is one of the 11 Conventional Commits types
-#   - <short-description> is lowercase ASCII with hyphens
+#   - <short-description> is lowercase ASCII letters, digits, and
+#     hyphens
 #
 # `master` is allowed (the no-commit-to-branch hook gates direct
 # commits there separately).
@@ -40,7 +41,8 @@ fi
     echo "  build, chore, ci, docs, feat, fix, perf, refactor,"
     echo "  revert, style, test"
     echo ""
-    echo "And <short-description> is lowercase ASCII with hyphens."
+    echo "And <short-description> is lowercase ASCII letters,"
+    echo "digits, and hyphens."
     echo ""
     echo "See CONTRIBUTING.md for details."
 } >&2
