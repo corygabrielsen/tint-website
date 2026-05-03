@@ -245,3 +245,10 @@ a:hover {
 .github-link a:hover {
   color: var(--fg);
 }
+
+.copyright {
+  text-align: center;
+  color: color-mix(in srgb, var(--fg) 25%, var(--bg));
+  font-size: 0.75rem;
+  margin-top: -1rem;
+}
