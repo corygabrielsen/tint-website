@@ -215,12 +215,21 @@ a:hover {
 
 .install-tabs .panels .panel {
   position: relative;
-  display: none;
 }
 
-.install-tabs:has(input:nth-of-type(1):checked) .panels .panel:nth-child(1),
-.install-tabs:has(input:nth-of-type(2):checked) .panels .panel:nth-child(2) {
-  display: block;
+/* In :has()-capable browsers (the support floor for the rest of the page)
+   hide all panels and reveal the active one. Browsers without :has() skip
+   the @supports block, so all panels stay visible — degraded but functional
+   instead of a blank widget. */
+@supports selector(:has(*)) {
+  .install-tabs .panels .panel {
+    display: none;
+  }
+
+  .install-tabs:has(input:nth-of-type(1):checked) .panels .panel:nth-child(1),
+  .install-tabs:has(input:nth-of-type(2):checked) .panels .panel:nth-child(2) {
+    display: block;
+  }
 }
 
 .install-tabs .panel pre {

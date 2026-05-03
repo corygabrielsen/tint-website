@@ -18,6 +18,8 @@ const { code } = Astro.props;
 </button>
 
 <script>
+  // Astro processes this <script> as TypeScript and ships compiled JS to the
+  // browser, so the generic type parameters below are erased at build time.
   // data-code carries the source string verbatim — querying the rendered <code>
   // would pick up Shiki's HTML-escaped version (& → &amp; etc.).
   document.querySelectorAll<HTMLButtonElement>('button.copy[data-code]').forEach((btn) => {
@@ -33,7 +35,12 @@ const { code } = Astro.props;
           if (status) status.textContent = '';
         }, 1200);
       } catch (err) {
+        // Clear the failure message after the same window so a second
+        // failure re-announces (aria-live skips identical-text updates).
         if (status) status.textContent = 'Copy failed';
+        setTimeout(() => {
+          if (status) status.textContent = '';
+        }, 1200);
         console.error('Clipboard write failed:', err);
       }
     });
