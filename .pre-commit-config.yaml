@@ -27,7 +27,7 @@ repos:
   - repo: local
     hooks:
       - id: validate-commit-message
-        name: Validate commit message (50/72 rule)
+        name: Validate commit message (subject line)
         entry: scripts/validate-commit-message.sh --no-pr-suffix
         language: script
         stages: [commit-msg]
