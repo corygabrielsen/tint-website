@@ -1,4 +1,6 @@
-/* Modern CSS reset (https://www.joshwcomeau.com/css/custom-css-reset/) */
+/* =============================================================================
+   1. Modern CSS reset (https://www.joshwcomeau.com/css/custom-css-reset/)
+   ========================================================================== */
 
 *,
 *::before,
@@ -47,7 +49,11 @@ h6 {
   overflow-wrap: break-word;
 }
 
-/* tint landing */
+/* =============================================================================
+   2. Theme tokens
+   light-dark() resolves against `color-scheme: light dark`, so each token
+   automatically swaps with the user's system preference.
+   ========================================================================== */
 
 :root {
   color-scheme: light dark;
@@ -60,6 +66,10 @@ h6 {
 
   --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
 }
+
+/* =============================================================================
+   3. Page chrome
+   ========================================================================== */
 
 body {
   background: var(--bg);
@@ -80,28 +90,39 @@ h1 {
   font-size: 3rem;
   font-weight: 700;
   letter-spacing: -0.02em;
+  text-align: center;
 }
 
 .tagline {
   font-size: 1.125rem;
   color: var(--muted);
   margin-top: -1.5rem;
+  text-align: center;
 }
 
-pre {
-  background: var(--code-bg);
-  border: 1px solid var(--border);
-  padding: 0.75rem 1rem;
-  font-family: var(--mono);
-  font-size: 0.875rem;
-  overflow-x: auto;
+a {
+  color: var(--fg);
 }
+
+a:hover {
+  color: var(--muted);
+}
+
+/* =============================================================================
+   4. Install tabs
+   Pure-CSS tabbed code blocks: hidden radio inputs drive the active state via
+   :has() + :nth-of-type, so adding a new tab requires zero JavaScript — just
+   another <input>/<label>/<panel> trio in the markup.
+   ========================================================================== */
 
 .install-tabs {
   border: 1px solid var(--border);
   background: var(--code-bg);
 }
 
+/* Visually hide radios while keeping them keyboard-accessible: Tab focuses
+   the radio, arrow keys switch between them. clip:rect is the canonical
+   visually-hidden pattern that doesn't drop tab order or screen-reader access. */
 .install-tabs input[type="radio"] {
   position: absolute;
   width: 1px;
@@ -132,29 +153,33 @@ pre {
   color: var(--fg);
 }
 
-.install-tabs:has(#install-brew:checked) label[for="install-brew"],
-.install-tabs:has(#install-curl:checked) label[for="install-curl"] {
+/* Active tab + active panel: positional matching via :nth-of-type means CSS
+   stays generic regardless of tab IDs. Extend with another :nth pair to add
+   a third tab. */
+.install-tabs:has(input:nth-of-type(1):checked) .tabs label:nth-child(1),
+.install-tabs:has(input:nth-of-type(2):checked) .tabs label:nth-child(2) {
   color: var(--fg);
   background: var(--bg);
 }
 
-.install-tabs:has(#install-brew:focus-visible) label[for="install-brew"],
-.install-tabs:has(#install-curl:focus-visible) label[for="install-curl"] {
+.install-tabs:has(input:nth-of-type(1):focus-visible) .tabs label:nth-child(1),
+.install-tabs:has(input:nth-of-type(2):focus-visible) .tabs label:nth-child(2) {
   outline: 2px solid var(--fg);
   outline-offset: -2px;
 }
 
-.install-tabs .blocks .block {
+.install-tabs .panels .panel {
   position: relative;
   display: none;
 }
 
-.install-tabs:has(#install-brew:checked) .blocks .block:nth-child(1),
-.install-tabs:has(#install-curl:checked) .blocks .block:nth-child(2) {
+.install-tabs:has(input:nth-of-type(1):checked) .panels .panel:nth-child(1),
+.install-tabs:has(input:nth-of-type(2):checked) .panels .panel:nth-child(2) {
   display: block;
 }
 
-.install-tabs .block pre {
+/* Strip the global pre styling Astro's <Code> would otherwise inherit. */
+.install-tabs .panel pre {
   border: 0;
   background: transparent !important;
   padding: 0.75rem 1rem;
@@ -164,19 +189,21 @@ pre {
   overflow-x: auto;
 }
 
-.install-tabs .block pre code {
+.install-tabs .panel pre code {
   font-family: inherit;
 }
 
-/* Shiki emits inline styles for the light theme; !important is required to swap to dark. */
+/* Shiki emits inline styles for the light theme; !important is the only way
+   to override inline-style specificity for the dark-mode swap. */
 @media (prefers-color-scheme: dark) {
-  .install-tabs .block .astro-code,
-  .install-tabs .block .astro-code span {
+  .install-tabs .panel .astro-code,
+  .install-tabs .panel .astro-code span {
     color: var(--shiki-dark) !important;
     background-color: var(--shiki-dark-bg) !important;
   }
 }
 
+/* Copy button — positioned over the top-right of each panel. */
 .install-tabs .copy {
   position: absolute;
   top: 0.4rem;
@@ -200,6 +227,8 @@ pre {
   background: var(--border);
 }
 
+/* Default: copy icon visible, check hidden. JS adds .copied for 1.2s on
+   successful clipboard write to flip them. */
 .install-tabs .copy .icon-check {
   display: none;
 }
@@ -213,6 +242,10 @@ pre {
   color: var(--fg);
 }
 
+/* =============================================================================
+   5. Demo placeholder
+   ========================================================================== */
+
 .demo-placeholder {
   aspect-ratio: 16 / 9;
   border: 1px dashed var(--border);
@@ -224,13 +257,9 @@ pre {
   font-family: var(--mono);
 }
 
-a {
-  color: var(--fg);
-}
-
-a:hover {
-  color: var(--muted);
-}
+/* =============================================================================
+   6. GitHub link
+   ========================================================================== */
 
 .github-link {
   text-align: center;
@@ -245,6 +274,12 @@ a:hover {
 .github-link a:hover {
   color: var(--fg);
 }
+
+/* =============================================================================
+   7. Copyright
+   color-mix at 25% fg / 75% bg fades the line so it sits below the GitHub
+   link's visual weight without disappearing.
+   ========================================================================== */
 
 .copyright {
   text-align: center;
