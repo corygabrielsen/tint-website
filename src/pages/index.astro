@@ -25,10 +25,12 @@ const installCommands = [
       <p class="tagline">Terminal theme switcher.</p>
     </header>
 
-    {/* Pure-CSS tabbed code blocks. The radio inputs MUST sit as direct
-        siblings of `.tabs` and `.panels` so the CSS sibling combinator can
-        match the active tab/panel — that's why this widget renders three
-        separate `installCommands.map()` passes instead of one. */}
+    {/* Pure-CSS tabbed code blocks. The radios share the <fieldset> as a
+        single parent and stay in stable source order so the
+        `:has(input:nth-of-type(N):checked)` + `:nth-child(N)` selectors in
+        global.css correctly map each radio to its label and panel. That
+        positional invariant is why this widget renders three separate
+        `installCommands.map()` passes instead of one combined loop. */}
     <fieldset class="install-tabs">
       <legend class="sr-only">Install method</legend>
       {installCommands.map((cmd, i) => (

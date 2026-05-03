@@ -22,27 +22,39 @@ const { code } = Astro.props;
   // browser, so the generic type parameters below are erased at build time.
   // data-code carries the source string verbatim — querying the rendered <code>
   // would pick up Shiki's HTML-escaped version (& → &amp; etc.).
+  const RESET_MS = 1200;
+
+  // Per-button timer so rapid clicks don't let an earlier reset wipe a
+  // later click's "Copied" state mid-flash.
+  const timers = new WeakMap<HTMLButtonElement, number>();
+
   document.querySelectorAll<HTMLButtonElement>('button.copy[data-code]').forEach((btn) => {
     const status = btn.querySelector<HTMLSpanElement>('.sr-only');
+
+    const scheduleReset = () => {
+      const prev = timers.get(btn);
+      if (prev !== undefined) window.clearTimeout(prev);
+      timers.set(
+        btn,
+        window.setTimeout(() => {
+          btn.classList.remove('copied');
+          if (status) status.textContent = '';
+        }, RESET_MS),
+      );
+    };
 
     btn.addEventListener('click', async () => {
       try {
         await navigator.clipboard.writeText(btn.dataset.code ?? '');
         btn.classList.add('copied');
         if (status) status.textContent = 'Copied';
-        setTimeout(() => {
-          btn.classList.remove('copied');
-          if (status) status.textContent = '';
-        }, 1200);
       } catch (err) {
-        // Clear the failure message after the same window so a second
-        // failure re-announces (aria-live skips identical-text updates).
+        // Distinct text from the success path so aria-live re-announces
+        // even when a failure follows another failure.
         if (status) status.textContent = 'Copy failed';
-        setTimeout(() => {
-          if (status) status.textContent = '';
-        }, 1200);
         console.error('Clipboard write failed:', err);
       }
+      scheduleReset();
     });
   });
 </script>
