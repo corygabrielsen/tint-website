@@ -5,7 +5,7 @@
 All topic branches merge directly into `master`:
 
 ```
-<type>/* ──► master
+<type>/<short-description> ──► master
 ```
 
 - **master**: main integration branch. PRs use squash merge for
