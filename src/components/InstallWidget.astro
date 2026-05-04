@@ -4,12 +4,26 @@
 //
 // - Tabs are driven by hidden radio inputs + a `:has(input:nth-of-type(N):checked)`
 //   selector chain, so active-state switching is pure CSS with no JS.
-// - The whole pre+icon row is a single <button data-copy>; clicking anywhere
-//   in the row copies the command's textContent to the clipboard and flips
-//   the copy icon to a check for 1.5s.
-// - Long commands wrap terminal-style (any character is a valid break point)
-//   instead of producing a horizontal scrollbar inside the click row, so
-//   users can read the entire command before pasting it into a shell.
+// - The whole pre+icon row is a single <button data-copy data-code=…>.
+//   Clicking anywhere on the row copies the verbatim command from
+//   `data-code` (NOT from textContent — shiki tokenises the source into
+//   spans whose textContent collapses runs of significant whitespace, and
+//   we want the clipboard payload to round-trip the original `code` prop
+//   byte-for-byte so commands with intentional spacing aren't corrupted).
+// - The copy/check icon swap is the visual feedback; an sr-only
+//   aria-live region announces "Copied" / "Copy failed" so screen-reader
+//   users get the same feedback. The button's aria-label includes the full
+//   command so AT users can review the payload before activating, instead
+//   of hearing only a generic "Copy command" label that hides what's about
+//   to land in their clipboard.
+// - `:focus-visible` paints a 2px outline on the row so keyboard users see
+//   which command currently has focus (the `all: unset` reset on the
+//   button strips the browser default focus ring and we have to put one
+//   back).
+// - Long commands wrap terminal-style (any character is a valid break
+//   point) instead of producing a horizontal scrollbar inside the click
+//   row, so users can read the entire command before pasting it into a
+//   shell.
 import { Code } from 'astro:components';
 
 interface Command {
@@ -47,7 +61,7 @@ const { commands, id = 'install-widget' } = Astro.props;
   </div>
   <div class="panels">
     {commands.map((cmd) => (
-      <div class="panel"><button data-copy type="button" class="command" aria-label={`Copy ${cmd.label} command`}><span class="command-script"><Code code={cmd.code} lang="sh" theme="css-variables" /></span><span class="copy-status"><svg class="icon-copy" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="square" aria-hidden="true"><path d="M8.75 8.75V2.75H21.25V15.25H15.25M15.25 8.75H2.75V21.25H15.25V8.75Z" /></svg><svg class="icon-check" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="square" aria-hidden="true"><path d="M2.75 15.0938L9 20.25L21.25 3.75" /></svg></span></button></div>
+      <div class="panel"><button data-copy data-code={cmd.code} type="button" class="command" aria-label={`Copy ${cmd.code}`}><span class="command-script"><Code code={cmd.code} lang="sh" theme="css-variables" /></span><span class="copy-status"><svg class="icon-copy" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="square" aria-hidden="true"><path d="M8.75 8.75V2.75H21.25V15.25H15.25M15.25 8.75H2.75V21.25H15.25V8.75Z" /></svg><svg class="icon-check" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="square" aria-hidden="true"><path d="M2.75 15.0938L9 20.25L21.25 3.75" /></svg><span class="copy-announce sr-only" aria-live="polite"></span></span></button></div>
     ))}
   </div>
 </fieldset>
@@ -141,6 +155,15 @@ const { commands, id = 'install-widget' } = Astro.props;
     background: color-mix(in srgb, var(--code-bg) 90%, var(--fg) 10%);
   }
 
+  /* `all: unset` above strips the browser default focus ring, so put one
+     back. Negative offset matches the tab focus rule a few blocks up so
+     keyboard focus styling reads as one consistent treatment across the
+     widget. */
+  .install-widget .command:focus-visible {
+    outline: 2px solid var(--fg);
+    outline-offset: -2px;
+  }
+
   /* `flex: 1 1 0; min-width: 0` lets the script slot shrink below its
      intrinsic content width so the inner pre's wrap rules can break long
      URLs at the row's right edge instead of pushing the icon off-screen. */
@@ -208,28 +231,47 @@ const { commands, id = 'install-widget' } = Astro.props;
   // wipe the later flash mid-flight.
   const timers = new WeakMap<HTMLButtonElement, number>();
 
-  // Read clipboard payload from textContent (same trick as opencode.ai's
-  // install widget) and collapse any incidental whitespace from
-  // server-rendered HTML so commands round-trip cleanly without us having
-  // to micro-format the JSX whitespace.
   document
     .querySelectorAll<HTMLButtonElement>('.install-widget [data-copy]')
     .forEach((btn) => {
-      btn.addEventListener('click', async (event) => {
-        const raw = (event.currentTarget as HTMLButtonElement).textContent ?? '';
-        const text = raw.replace(/\s+/g, ' ').trim();
+      // Live region for screen-reader copy feedback. The visual icon swap
+      // is announced separately to AT users via this region's text update.
+      const announce = btn.querySelector<HTMLSpanElement>('.copy-announce');
+
+      btn.addEventListener('click', async () => {
+        // Source the clipboard payload from `data-code` rather than
+        // textContent: shiki tokenises the visible code into spans whose
+        // concatenated textContent normalises whitespace and would
+        // silently corrupt commands with intentional repeated spaces or
+        // newlines.
+        const text = btn.dataset.code ?? '';
+        let success = false;
         try {
           await navigator.clipboard.writeText(text);
-          btn.setAttribute('data-copied', '');
-          const prev = timers.get(btn);
-          if (prev !== undefined) window.clearTimeout(prev);
-          timers.set(
-            btn,
-            window.setTimeout(() => btn.removeAttribute('data-copied'), RESET_MS),
-          );
+          success = true;
         } catch (err) {
           console.error('Clipboard write failed:', err);
         }
+
+        if (success) {
+          btn.setAttribute('data-copied', '');
+          if (announce) announce.textContent = 'Copied';
+        } else if (announce) {
+          // Distinct text from the success path so aria-live re-announces
+          // even on consecutive failures (writing the same value twice
+          // doesn't trigger an announcement in most screen readers).
+          announce.textContent = 'Copy failed';
+        }
+
+        const prev = timers.get(btn);
+        if (prev !== undefined) window.clearTimeout(prev);
+        timers.set(
+          btn,
+          window.setTimeout(() => {
+            btn.removeAttribute('data-copied');
+            if (announce) announce.textContent = '';
+          }, RESET_MS),
+        );
       });
     });
 </script>
