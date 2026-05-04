@@ -250,7 +250,7 @@ function checkInstallWidget(html: string): void {
 // for the bundle URL inside inline script bodies rather than a
 // `<script src="…">` attribute.
 //
-// Three invariants:
+// Three requirements must hold *within a single inline <script>*:
 //   1. Bundle URL stem (loose match by `plausible.io/js/pa-` —
 //      Plausible reissues the bundle under new hashes, and pinning
 //      the full hash would make a remote rotation a CI failure).
@@ -260,19 +260,42 @@ function checkInstallWidget(html: string): void {
 //      pageviews at script load. Symmetric server-side gate in
 //      worker/index.ts.
 //
+// All three must be satisfied by the *same* script, not by three
+// different scripts each contributing one fragment. Splitting the
+// requirements across three independent `scripts.some(...)` calls
+// false-passes when the predicates happen to match unrelated scripts
+// (a benign-looking page with three scripts each containing one of
+// the strings would slip through). The `every` over a single
+// candidate enforces the conjunction.
+//
 // Run per-page (not once per build) because the failure mode is
 // "404.html lost the snippet during a layout refactor".
 function checkPlausibleSnippet(html: string, sourcePath: string): void {
   const scripts = [...html.matchAll(/<script\b[^>]*>([\s\S]*?)<\/script>/g)].map((m) => m[1] ?? '');
-  const hasBundleUrl = scripts.some((s) => /plausible\.io\/js\/pa-/.test(s));
-  check(hasBundleUrl, `${sourcePath}: no inline <script> references the Plausible bundle URL`);
-  const hasInit = scripts.some((s) => /plausible\.init\s*\(/.test(s));
-  check(hasInit, `${sourcePath}: no inline <script> calls plausible.init()`);
-  const hasHostGate = scripts.some((s) => /location\.hostname\s*===\s*['"]tint\.sh['"]/.test(s));
-  check(
-    hasHostGate,
-    `${sourcePath}: Plausible snippet missing 'tint.sh' hostname gate (would fire pageviews on *.workers.dev / preview hosts)`,
-  );
+  const requirements: Array<[name: string, pattern: RegExp]> = [
+    ['Plausible bundle URL (plausible.io/js/pa-*)', /plausible\.io\/js\/pa-/],
+    ['plausible.init() call', /plausible\.init\s*\(/],
+    ["'tint.sh' hostname gate", /location\.hostname\s*===\s*['"]tint\.sh['"]/],
+  ];
+
+  if (scripts.some((s) => requirements.every(([, re]) => re.test(s)))) {
+    return;
+  }
+
+  // No single script satisfied all three. Give the most actionable
+  // diagnostic by distinguishing "missing entirely" from "scattered
+  // across unrelated scripts" (the false-pass mode this check is
+  // explicitly designed to catch).
+  const missing = requirements.filter(([, re]) => !scripts.some((s) => re.test(s))).map(([n]) => n);
+  if (missing.length === 0) {
+    errors.push(
+      `${sourcePath}: Plausible requirements satisfied across multiple scripts but no single inline <script> contains all three (bundle URL + plausible.init() + 'tint.sh' hostname gate must be in the same script)`,
+    );
+  } else {
+    errors.push(
+      `${sourcePath}: no inline <script> contains a complete Plausible snippet; missing in any script: ${missing.join(', ')}`,
+    );
+  }
 }
 
 const html = await readDistFile('index.html');
