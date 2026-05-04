@@ -1,3 +1,15 @@
+astro:
+  - changed-files:
+      - any-glob-to-any-file: ["**/*.astro"]
+
+css:
+  - changed-files:
+      - any-glob-to-any-file: ["**/*.css"]
+
+dependencies:
+  - changed-files:
+      - any-glob-to-any-file: ["package.json", "package-lock.json"]
+
 documentation:
   - changed-files:
       - any-glob-to-any-file: ["**/*.md"]
@@ -9,18 +21,6 @@ github_actions:
           - ".github/labeler.yml"
           - ".github/dependabot.yml"
 
-dependencies:
-  - changed-files:
-      - any-glob-to-any-file: ["package.json", "package-lock.json"]
-
-astro:
-  - changed-files:
-      - any-glob-to-any-file: ["**/*.astro"]
-
-css:
-  - changed-files:
-      - any-glob-to-any-file: ["**/*.css"]
-
 javascript:
   - changed-files:
       - any-glob-to-any-file: ["**/*.{js,mjs,cjs}"]
@@ -28,3 +28,7 @@ javascript:
 shell:
   - changed-files:
       - any-glob-to-any-file: ["**/*.sh"]
+
+typescript:
+  - changed-files:
+      - any-glob-to-any-file: ["**/*.{ts,mts,cts,tsx}"]
