@@ -194,11 +194,9 @@ function checkInstallWidget(html: string): void {
   }
 
   // The curl install command must reference https://tint.sh/tint — the
-  // short URL the Cloudflare Worker (worker/index.ts) handles by 302-ing
-  // to the GitHub release asset. Reverting to the raw github.com URL
-  // would (a) regress the displayed command back to ~80 chars of wrap-
-  // worthy text, and (b) bypass the Worker's `tint_download` Plausible
-  // event because traffic would never hit tint.sh for that path.
+  // short URL the Worker (worker/index.ts) handles. Reverting to the
+  // raw github.com URL bloats the displayed command and bypasses the
+  // Worker's `tint_download` event.
   const installUrls = buttons.map((tag) => decodeHtmlEntities(getAttr(tag, 'data-code') ?? ''));
   const hasShortInstallUrl = installUrls.some((code) => code.includes('https://tint.sh/tint'));
   check(
@@ -214,31 +212,23 @@ function checkInstallWidget(html: string): void {
   );
 }
 
-// Plausible Analytics is the load-bearing observability channel for
-// tint.sh — every page must include the snippet, otherwise the dashboard
-// silently under-counts pageviews and our 6-month-trend assumption goes
-// invisible. The snippet is dynamically injected by an inline gate in
-// the layout (see Layout.astro), so we look for the bundle URL inside
-// the inline script bodies, not in `<script src="…">` attributes.
+// Every page must include the Plausible snippet. The snippet is
+// dynamically injected by an inline gate in Layout.astro, so we look
+// for the bundle URL inside inline script bodies rather than a
+// `<script src="…">` attribute.
 //
-// Three invariants are enforced together so the entire class of
-// "production analytics gets polluted by non-prod traffic" stays
-// solved:
+// Three invariants:
+//   1. Bundle URL stem (loose match by `plausible.io/js/pa-` —
+//      Plausible reissues the bundle under new hashes, and pinning
+//      the full hash would make a remote rotation a CI failure).
+//   2. `plausible.init()` is called so SPA pageview hooks are wired.
+//   3. Hostname-gated on `tint.sh` — without this, *.workers.dev hits,
+//      preview hostnames, and `astro dev` auto-fire production
+//      pageviews at script load. Symmetric server-side gate in
+//      worker/index.ts.
 //
-//   1. The snippet must reference the bundle URL stem (loose match by
-//      `plausible.io/js/pa-` — Plausible periodically reissues the
-//      bundle under a new hash, and pinning the full hash would make
-//      a remote rotation a CI failure).
-//   2. The snippet must call `plausible.init()` so SPA-style pageview
-//      hooks are wired.
-//   3. The snippet must hostname-gate on `tint.sh` so *.workers.dev
-//      verify hits, future preview hostnames, and local `astro dev`
-//      don't auto-fire a production pageview when the bundle loads.
-//      The matching server-side gate lives in worker/index.ts.
-//
-// Coverage is page-by-page rather than once-per-build because the
-// failure mode is "404.html lost the snippet during a layout
-// refactor", not "the project lost it everywhere".
+// Run per-page (not once per build) because the failure mode is
+// "404.html lost the snippet during a layout refactor".
 function checkPlausibleSnippet(html: string, sourcePath: string): void {
   const scripts = [...html.matchAll(/<script\b[^>]*>([\s\S]*?)<\/script>/g)].map((m) => m[1] ?? '');
   const hasBundleUrl = scripts.some((s) => /plausible\.io\/js\/pa-/.test(s));

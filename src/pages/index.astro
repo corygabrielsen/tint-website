@@ -9,12 +9,11 @@ const repoUrl = 'https://github.com/corygabrielsen/tint';
 // README, not here. `brew install user/repo/formula` auto-taps the third-party
 // tap on first install, so no `brew tap` step is needed.
 //
-// The curl one-liner uses `https://tint.sh/tint`, a short URL served by the
-// Cloudflare Worker (worker/index.ts) that 302s to the canonical GitHub
-// Releases asset. This keeps the displayed command short while preserving
-// GitHub's per-asset `download_count` (curl follows the redirect to the
-// release asset, incrementing the counter naturally) and lets the Worker
-// fire a Plausible `tint_download` event in parallel.
+// The curl one-liner uses `https://tint.sh/tint`, served by the Worker
+// (worker/index.ts) as a 302 to the canonical GitHub release asset.
+// curl follows the redirect to that asset, which increments GitHub's
+// per-asset `download_count`; the Worker fires a Plausible
+// `tint_download` event in parallel.
 //
 // `as const` narrows this to a 2-tuple so it satisfies InstallWidget's
 // `readonly [Command, Command]` prop. Adding a third install method here

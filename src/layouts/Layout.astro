@@ -23,22 +23,16 @@ const { title, description, favicon = '/favicon.svg' } = Astro.props;
     <meta name="description" content={description} />
     <link rel="icon" type="image/svg+xml" href={favicon} />
     <title>{title}</title>
-    {/* Plausible Analytics: privacy-friendly RUM. The bundle URL is
-        keyed to the tint.sh site (not a user secret); domain
-        identification is baked into pa-2GDvlSNQ-zZ5v8bZRNwrQ.js.
+    {/* Plausible Analytics. The bundle URL is keyed to tint.sh (not a
+        secret); domain identification is baked into the bundle.
 
-        Hostname gate: the Plausible bundle auto-fires a pageview when
-        it loads, so suppressing analytics on non-canonical hosts means
-        not loading the bundle at all (gating only `plausible.init()`
-        wouldn't help — the pageview happens at script load). On
-        *.workers.dev verification hits, on any future preview/staging
-        hostname, and during local `astro dev`, the snippet short-
-        circuits and Plausible never sees the request. The symmetric
-        server-side gate lives in worker/index.ts; together they keep
-        the dashboard a faithful record of real production traffic.
+        Hostname gate: the bundle auto-fires a pageview at script load,
+        so suppressing analytics on non-canonical hosts requires not
+        loading the bundle at all. *.workers.dev hits, future preview
+        hostnames, and local `astro dev` short-circuit. Symmetric
+        server-side gate lives in worker/index.ts.
 
-        is:inline keeps Astro from bundling/transforming the snippet
-        so it lands in <head> verbatim. */}
+        is:inline lands the snippet in <head> verbatim. */}
     <script is:inline>
       if (location.hostname === 'tint.sh') {
         var s = document.createElement('script');
