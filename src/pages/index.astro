@@ -46,6 +46,25 @@ const themeColors = [
   '#AC5396',
   '#AC5374',
 ];
+
+const featureDemos = [
+  {
+    src: 'demo-cli.mp4',
+    alt: 'Applying built-in tint themes by name',
+  },
+  {
+    src: 'demo-picker.mp4',
+    alt: 'Selecting a tint theme in the interactive picker',
+  },
+  {
+    src: 'demo-cd-hook.mp4',
+    alt: 'Automatically applying tint themes when changing directories',
+  },
+  {
+    src: 'demo-custom-theme.mp4',
+    alt: 'Adding and applying a custom tint theme',
+  },
+];
 ---
 
 <Layout
@@ -77,6 +96,22 @@ const themeColors = [
       height="450"
       aria-label="tint demo: picker, CLI, cd-hook auto-tinting, custom theme"
     ></video>
+
+    <div class="feature-demos">
+      {featureDemos.map((demo) => (
+        <video
+          class="demo"
+          src={demo.src}
+          autoplay
+          loop
+          muted
+          playsinline
+          width="824"
+          height="450"
+          aria-label={demo.alt}
+        ></video>
+      ))}
+    </div>
 
     <p class="github-link">
       <a href={repoUrl} aria-label="GitHub repository">

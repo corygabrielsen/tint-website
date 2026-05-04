@@ -62,9 +62,10 @@ async function checkAbsent(path: string): Promise<void> {
   }
 }
 
-function extractVideoSrc(html: string): string | undefined {
-  const match = html.match(/<video\b[^>]*\bsrc\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+))/i);
-  return match?.[1] ?? match?.[2] ?? match?.[3];
+function extractVideoSrcs(html: string): string[] {
+  return [...html.matchAll(/<video\b[^>]*\bsrc\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+))/gi)]
+    .map((match) => match[1] ?? match[2] ?? match[3])
+    .filter((src): src is string => Boolean(src));
 }
 
 function decodeHtmlEntities(s: string): string {
@@ -373,22 +374,23 @@ async function checkWranglerConfig(): Promise<void> {
 
 const html = await readDistFile('index.html');
 const notFoundHtml = await readDistFile('404.html');
-const videoSrc = extractVideoSrc(html);
+const videoSrcs = extractVideoSrcs(html);
 
-check(Boolean(videoSrc), 'homepage is missing a video src');
+check(videoSrcs.length > 0, 'homepage is missing a video src');
+check(videoSrcs.includes('demo.mp4'), 'homepage is missing the primary demo.mp4 video');
 
-if (videoSrc) {
+for (const videoSrc of videoSrcs) {
   check(!videoSrc.startsWith('/'), `video src must be relative, got ${videoSrc}`);
   check(!/^[a-z][a-z0-9+.-]*:/i.test(videoSrc), `video src must not be absolute, got ${videoSrc}`);
 
-  // Pin the canonical filename. Combined with the relative-src checks
-  // above, this guarantees the homepage video is served from /demo.mp4
-  // on tint.sh — the path the asset binding actually serves.
+  // Relative video sources must resolve at tint.sh root because the
+  // Cloudflare asset binding serves these files directly.
   const customDomainUrl = new URL(videoSrc, 'https://tint.sh/');
   check(
-    customDomainUrl.pathname === '/demo.mp4',
+    customDomainUrl.pathname === `/${videoSrc}`,
     `video src resolves incorrectly on tint.sh: ${customDomainUrl.href}`,
   );
+  await checkNonEmptyFile(videoSrc);
 }
 
 checkInstallWidget(html);
@@ -400,8 +402,15 @@ checkPlausibleSnippet(notFoundHtml, '404.html');
 await checkFaviconLinks(html, 'index.html');
 await checkFaviconLinks(notFoundHtml, '404.html');
 
-await checkNonEmptyFile('demo.mp4');
-await checkNonEmptyFile('demo.gif');
+for (const file of [
+  'demo.gif',
+  'demo-cli.gif',
+  'demo-picker.gif',
+  'demo-cd-hook.gif',
+  'demo-custom-theme.gif',
+]) {
+  await checkNonEmptyFile(file);
+}
 await checkNonEmptyFile('robots.txt');
 await checkNonEmptyFile('sitemap-index.xml');
 

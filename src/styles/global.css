@@ -185,6 +185,11 @@ a:hover {
   border: 1px solid var(--border);
 }
 
+.feature-demos {
+  display: grid;
+  gap: 1rem;
+}
+
 @media (max-width: 36rem) {
   .demo {
     width: calc(100% + 3rem);
