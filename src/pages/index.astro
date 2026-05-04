@@ -131,7 +131,7 @@ function inlineDescriptionParts(text: string): InlineDescriptionPart[] {
     <InstallWidget commands={installCommands} />
 
     {/* TODO: Add a small static poster image for MP4 load/decode failures. */}
-    <div class="demo-frame" data-demo-frame role="button" tabindex="0" aria-label="Play demo video">
+    <div class="demo-frame" data-demo-frame>
       <video
         class="demo"
         data-demo-video
@@ -201,7 +201,7 @@ function inlineDescriptionParts(text: string): InlineDescriptionPart[] {
               </span>
             </button>
           </div>
-          <div class="demo-frame" data-demo-frame role="button" tabindex="0" aria-label="Play demo video">
+          <div class="demo-frame" data-demo-frame>
             <video
               class="demo"
               data-demo-video
@@ -314,6 +314,7 @@ function inlineDescriptionParts(text: string): InlineDescriptionPart[] {
         'aria-label',
         isActive && !isDemoUserPaused ? 'Pause demo video' : 'Play demo video',
       );
+      frame.setAttribute('aria-pressed', String(isActive && !isDemoUserPaused));
     }
   }
 
@@ -398,6 +399,8 @@ function inlineDescriptionParts(text: string): InlineDescriptionPart[] {
       const video = frame.querySelector<HTMLVideoElement>('[data-demo-video]');
       if (!video) continue;
 
+      frame.setAttribute('role', 'button');
+      frame.tabIndex = 0;
       frame.addEventListener('click', () => toggleDemoVideo(video));
       frame.addEventListener('keydown', (event) => {
         if (event.key === 'Enter' || event.key === ' ') {

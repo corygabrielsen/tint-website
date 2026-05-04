@@ -189,10 +189,16 @@ function checkVideoElements(html: string): void {
     demoVideos.length === 5,
     `expected 5 script-controlled demo videos, found ${demoVideos.length}`,
   );
-  check(frames.length === 5, `expected 5 clickable demo video frames, found ${frames.length}`);
+  check(frames.length === 5, `expected 5 demo video frames, found ${frames.length}`);
   for (const [i, frame] of frames.entries()) {
-    check(/\brole\s*=\s*"button"/.test(frame), `demo video frame ${i}: missing role="button"`);
-    check(/\btabindex\s*=\s*"0"/.test(frame), `demo video frame ${i}: missing tabindex="0"`);
+    check(
+      !/\brole\s*=\s*"button"/.test(frame),
+      `demo video frame ${i}: should not be a static role="button" without JS handlers`,
+    );
+    check(
+      !/\btabindex\s*=\s*"0"/.test(frame),
+      `demo video frame ${i}: should not be statically focusable without JS handlers`,
+    );
   }
 }
 
@@ -230,6 +236,8 @@ function checkDemoVideoController(scripts: string[]): void {
       s.includes('prefers-reduced-motion: reduce') &&
       s.includes('matchMedia') &&
       s.includes('data-demo-paused') &&
+      s.includes('aria-pressed') &&
+      s.includes('setAttribute("role","button")') &&
       /addEventListener\(["']click["']/.test(s) &&
       /addEventListener\(["']keydown["']/.test(s) &&
       /addEventListener\(["']scroll["']/.test(s) &&
