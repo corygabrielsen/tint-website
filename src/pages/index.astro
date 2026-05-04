@@ -54,7 +54,7 @@ const featureDemos = [
     description: 'Use any theme directly from your shell. Instantly.',
     command: 'tint dracula',
     src: 'demo-cli.mp4',
-    alt: 'Applying built-in tint themes by name',
+    ariaLabel: 'Applying built-in tint themes by name',
   },
   {
     id: 'picker',
@@ -62,7 +62,7 @@ const featureDemos = [
     description: 'Run `tint` with no arguments to scroll and select themes interactively in your terminal.',
     command: 'tint',
     src: 'demo-picker.mp4',
-    alt: 'Selecting a tint theme in the interactive picker',
+    ariaLabel: 'Selecting a tint theme in the interactive picker',
   },
   {
     id: 'cd-hook',
@@ -71,7 +71,7 @@ const featureDemos = [
     command: `eval "$(tint hook bash)"
 echo dracula > .tint`,
     src: 'demo-cd-hook.mp4',
-    alt: 'Automatically applying tint themes when changing directories',
+    ariaLabel: 'Automatically applying tint themes when changing directories',
   },
   {
     id: 'custom-theme',
@@ -83,7 +83,7 @@ matrix:#000000:#00ff00:#000000:#008800:#00ff00:#aaff00:#005533:#00aa55:#00ff66:#
 EOF
 tint matrix`,
     src: 'demo-custom-theme.mp4',
-    alt: 'Adding and applying a custom tint theme',
+    ariaLabel: 'Adding and applying a custom tint theme',
   },
 ];
 
@@ -145,6 +145,9 @@ function inlineDescriptionParts(text: string): InlineDescriptionPart[] {
         aria-label="tint demo: picker, CLI, cd-hook auto-tinting, custom theme"
       ></video>
       <span class="demo-play-overlay" aria-hidden="true"></span>
+      <noscript>
+        <a class="demo-fallback-link" href="demo.mp4">Open demo video</a>
+      </noscript>
     </div>
 
     <div class="feature-demos">
@@ -163,7 +166,7 @@ function inlineDescriptionParts(text: string): InlineDescriptionPart[] {
               data-feature-command
               data-feature-copy
               data-code={demo.command}
-              aria-label={`Copy ${demo.title} command`}
+              aria-label={`Copy ${demo.command}`}
             >
               <code>{demo.command}</code>
               <span class="feature-copy-status">
@@ -208,9 +211,12 @@ function inlineDescriptionParts(text: string): InlineDescriptionPart[] {
               preload="metadata"
               width="824"
               height="450"
-              aria-label={demo.alt}
+              aria-label={demo.ariaLabel}
             ></video>
             <span class="demo-play-overlay" aria-hidden="true"></span>
+            <noscript>
+              <a class="demo-fallback-link" href={demo.src}>Open demo video</a>
+            </noscript>
           </div>
         </section>
       ))}
@@ -269,9 +275,10 @@ function inlineDescriptionParts(text: string): InlineDescriptionPart[] {
     .map((frame) => frame.querySelector<HTMLVideoElement>('[data-demo-video]'))
     .filter((video): video is HTMLVideoElement => Boolean(video));
   const demoVideoFrames = new Map<HTMLVideoElement, HTMLElement>();
+  const reducedMotionQuery = window.matchMedia('(prefers-reduced-motion: reduce)');
   let activeDemoVideo: HTMLVideoElement | null = null;
   let manualDemoVideo: HTMLVideoElement | null = null;
-  let isDemoUserPaused = false;
+  let isDemoUserPaused = reducedMotionQuery.matches;
   let demoPlaybackFrame = 0;
 
   for (const frame of demoFrames) {
@@ -432,6 +439,19 @@ function inlineDescriptionParts(text: string): InlineDescriptionPart[] {
     window.addEventListener('resize', scheduleDemoPlaybackUpdate);
     window.addEventListener('pageshow', scheduleDemoPlaybackUpdate);
     document.addEventListener('visibilitychange', scheduleDemoPlaybackUpdate);
+    const handleReducedMotionChange = (event: MediaQueryListEvent): void => {
+      if (event.matches) isDemoUserPaused = true;
+      scheduleDemoPlaybackUpdate();
+    };
+    if ('addEventListener' in reducedMotionQuery) {
+      reducedMotionQuery.addEventListener('change', handleReducedMotionChange);
+    } else {
+      (
+        reducedMotionQuery as MediaQueryList & {
+          addListener: (listener: (event: MediaQueryListEvent) => void) => void;
+        }
+      ).addListener(handleReducedMotionChange);
+    }
     scheduleDemoPlaybackUpdate();
   }
 </script>

@@ -158,6 +158,7 @@ function checkDemoVideoController(html: string): void {
       s.includes('data-demo-frame') &&
       s.includes('data-demo-video') &&
       s.includes('IntersectionObserver') &&
+      s.includes('prefers-reduced-motion: reduce') &&
       s.includes('data-demo-paused') &&
       /addEventListener\(["']click["']/.test(s) &&
       /addEventListener\(["']keydown["']/.test(s) &&
@@ -217,6 +218,11 @@ function checkFeatureDemos(html: string): void {
         check(
           decodedCode === expectedCommands[i],
           `feature demo ${i}: command mismatch "${decodedCode}"`,
+        );
+        const ariaLabel = getAttr(copyButton, 'aria-label');
+        check(
+          decodeHtmlEntities(ariaLabel ?? '') === `Copy ${decodedCode}`,
+          `feature demo ${i}: copy button aria-label does not expose clipboard payload`,
         );
       }
     }
@@ -469,16 +475,18 @@ check(videoSrcs.includes('demo.mp4'), 'homepage is missing the primary demo.mp4 
 for (const videoSrc of videoSrcs) {
   check(!videoSrc.startsWith('/'), `video src must be relative, got ${videoSrc}`);
   check(!/^[a-z][a-z0-9+.-]*:/i.test(videoSrc), `video src must not be absolute, got ${videoSrc}`);
-
-  // Relative video sources must resolve at tint.sh root because the
-  // Cloudflare asset binding serves these files directly.
-  const customDomainUrl = new URL(videoSrc, 'https://tint.sh/');
   check(
-    customDomainUrl.pathname === `/${videoSrc}`,
-    `video src resolves incorrectly on tint.sh: ${customDomainUrl.href}`,
+    !videoSrc.split('/').some((segment) => segment === '.' || segment === '..'),
+    `video src must not use dot segments, got ${videoSrc}`,
   );
+  check(!videoSrc.includes('/'), `video src must be a root-local asset filename, got ${videoSrc}`);
   await checkNonEmptyFile(videoSrc);
 }
+
+check(
+  [...html.matchAll(/<noscript\b[\s\S]*?<\/noscript>/g)].length === videoSrcs.length,
+  'each demo video needs a no-JS fallback link',
+);
 
 checkInstallWidget(html);
 checkVideoElements(html);
