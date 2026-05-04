@@ -30,6 +30,18 @@ interface FetchCall {
   url: string;
   method: string;
   contentType: string | null;
+  // Full outbound header set, captured as a Headers instance so the
+  // assertions can read individual headers by name (User-Agent,
+  // X-Forwarded-For, ...). Required for the request→outbound
+  // forwarding contract: the worker reads inbound request headers
+  // (user-agent, cf-connecting-ip, cf-ipcountry) and rewrites them
+  // onto the outbound Plausible POST. A regression that drops one
+  // (or remaps to the wrong inbound header name — e.g. cf-country
+  // instead of cf-ipcountry) breaks Plausible's geo / unique-visitor
+  // attribution silently. The contract walks every inbound axis the
+  // worker reads from, so a remap regression on any one of them
+  // surfaces as a specific assertion failure.
+  headers: Headers;
   body: string;
 }
 const fetchCalls: FetchCall[] = [];
@@ -50,7 +62,7 @@ globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
   const headers = new Headers(init?.headers ?? {});
   const contentType = headers.get('content-type');
   const body = typeof init?.body === 'string' ? init.body : '';
-  fetchCalls.push({ url, method, contentType, body });
+  fetchCalls.push({ url, method, contentType, headers, body });
   return new Response('mocked', { status: 202 });
 }) as typeof fetch;
 
@@ -60,6 +72,25 @@ interface AssetCall {
 }
 const assetCalls: AssetCall[] = [];
 
+// Map a request path to a realistic (body, content-type) pair.
+// Used by the env.ASSETS mock so the X-Robots-Tag harness below
+// can exercise multiple content types — Copilot flagged that an
+// HTML-only mock would miss a regression where the header gets
+// content-type-gated (e.g., applied only to text/html), silently
+// re-exposing sitemap-index.xml and robots.txt to crawlers.
+function mockAssetFor(pathname: string): { body: string; contentType: string } {
+  if (pathname === '/sitemap-index.xml' || pathname.endsWith('.xml')) {
+    return { body: '<?xml version="1.0"?><urlset/>', contentType: 'application/xml' };
+  }
+  if (pathname === '/robots.txt' || pathname.endsWith('.txt')) {
+    return { body: 'User-agent: *\nAllow: /\n', contentType: 'text/plain' };
+  }
+  return {
+    body: '<!doctype html><html><head></head><body>asset</body></html>',
+    contentType: 'text/html',
+  };
+}
+
 const env = {
   ASSETS: {
     fetch: async (request: Request) => {
@@ -67,13 +98,13 @@ const env = {
       const url = new URL(request.url);
       // Simulate dist/: any /tint path 404s (no static file; the
       // smoke-dist `checkAbsent('tint')` enforces this in dist).
-      // Other paths return a minimal HTML page.
       if (url.pathname === '/tint' || url.pathname.startsWith('/tint/')) {
         return new Response('not found', { status: 404 });
       }
-      return new Response('<!doctype html><html><head></head><body>asset</body></html>', {
+      const { body, contentType } = mockAssetFor(url.pathname);
+      return new Response(body, {
         status: 200,
-        headers: { 'Content-Type': 'text/html' },
+        headers: { 'Content-Type': contentType },
       });
     },
   },
@@ -86,12 +117,20 @@ const ctx = {
   },
 };
 
-async function call(method: string, url: string): Promise<Response> {
+async function call(
+  method: string,
+  url: string,
+  requestHeaders?: Record<string, string>,
+): Promise<Response> {
   // Reset capture buffers so each call's effects are observable in isolation.
   fetchCalls.length = 0;
   assetCalls.length = 0;
   waitUntilCalls.length = 0;
-  return workerModule.fetch(new Request(url, { method }), env, ctx);
+  return workerModule.fetch(
+    new Request(url, requestHeaders ? { method, headers: requestHeaders } : { method }),
+    env,
+    ctx,
+  );
 }
 
 const RELEASE_URL = 'https://github.com/corygabrielsen/tint/releases/latest/download/tint';
@@ -116,13 +155,29 @@ const RELEASE_URL = 'https://github.com/corygabrielsen/tint/releases/latest/down
 // strips the query when constructing the redirect target;
 // passing through `?utm_source=…` would split utm-tracking from
 // the Plausible event domain.
+// Inbound request headers the worker reads from, paired with how
+// they should appear on the outbound Plausible POST. Provide an
+// `inboundHeaders` of `{ 'user-agent': 'Mozilla/5.0', 'cf-connecting-ip': '203.0.113.7', 'cf-ipcountry': 'CA' }`
+// to assert the full forwarding chain in one call. Provide `{}` to
+// assert the fallback chain (UA defaults to 'curl', X-Forwarded-For
+// defaults to empty, country defaults to 'unknown').
+interface ForwardingExpectations {
+  outboundUserAgent: string;
+  outboundXForwardedFor: string;
+  payloadCountry: string;
+}
 async function assertCanonicalTintContract(
   method: 'GET' | 'HEAD',
   url: string,
-  expectQueryDropped = false,
+  options: {
+    expectQueryDropped?: boolean;
+    inboundHeaders?: Record<string, string>;
+    forwarding?: ForwardingExpectations;
+  } = {},
 ): Promise<void> {
+  const { expectQueryDropped = false, inboundHeaders, forwarding } = options;
   const label = `${method} ${url}`;
-  const response = await call(method, url);
+  const response = await call(method, url, inboundHeaders);
   check(response.status === 302, `${label}: status ${response.status}, want 302`);
   check(
     response.headers.get('location') === RELEASE_URL,
@@ -185,6 +240,30 @@ async function assertCanonicalTintContract(
         typeof payload.props === 'object' && payload.props !== null && 'country' in payload.props,
         `${label} → trackDownload: payload.props.country must be present, got ${JSON.stringify(payload.props)}`,
       );
+
+      // Request → outbound forwarding. Each axis is a real
+      // dimension in Plausible attribution: User-Agent feeds
+      // browser/OS, X-Forwarded-For feeds unique-visitor counts and
+      // city-level geo, props.country feeds the country breakdown.
+      // A regression that drops one (or remaps to the wrong inbound
+      // header — e.g. `cf-country` instead of `cf-ipcountry`) leaves
+      // the dashboard wrong without any request- or response-shape
+      // change visible to a surface-level test.
+      if (forwarding) {
+        check(
+          plausibleCall.headers.get('user-agent') === forwarding.outboundUserAgent,
+          `${label} → trackDownload: outbound User-Agent must be ${JSON.stringify(forwarding.outboundUserAgent)} (forwarded from inbound user-agent), got ${JSON.stringify(plausibleCall.headers.get('user-agent'))}`,
+        );
+        check(
+          plausibleCall.headers.get('x-forwarded-for') === forwarding.outboundXForwardedFor,
+          `${label} → trackDownload: outbound X-Forwarded-For must be ${JSON.stringify(forwarding.outboundXForwardedFor)} (forwarded from inbound cf-connecting-ip), got ${JSON.stringify(plausibleCall.headers.get('x-forwarded-for'))}`,
+        );
+        check(
+          (payload.props as Record<string, unknown> | undefined)?.country ===
+            forwarding.payloadCountry,
+          `${label} → trackDownload: payload.props.country must be ${JSON.stringify(forwarding.payloadCountry)} (forwarded from inbound cf-ipcountry), got ${JSON.stringify((payload.props as Record<string, unknown> | undefined)?.country)}`,
+        );
+      }
     }
   } else {
     check(
@@ -236,46 +315,85 @@ await assertCanonicalTintContract('HEAD', 'https://tint.sh/tint/');
 // the bare RELEASE_URL). Documented as a contract in
 // worker/index.ts because social-share / utm-tracking parameters
 // would otherwise 404 on real-world inbound links.
-await assertCanonicalTintContract(
-  'GET',
-  'https://tint.sh/tint?utm_source=share&ref=foo',
-  /* expectQueryDropped */ true,
-);
+await assertCanonicalTintContract('GET', 'https://tint.sh/tint?utm_source=share&ref=foo', {
+  expectQueryDropped: true,
+});
+
+// Request → outbound forwarding contract. The worker's trackDownload
+// reads three inbound headers and rewrites them onto the Plausible
+// POST. Test both axes: present (every header forwards intact) and
+// absent (every header falls back to the documented default). A
+// regression on either axis would leave the Plausible dashboard
+// silently misattributed.
+await assertCanonicalTintContract('GET', 'https://tint.sh/tint', {
+  inboundHeaders: {
+    'user-agent': 'Mozilla/5.0 (TestProbe)',
+    'cf-connecting-ip': '203.0.113.7',
+    'cf-ipcountry': 'CA',
+  },
+  forwarding: {
+    outboundUserAgent: 'Mozilla/5.0 (TestProbe)',
+    outboundXForwardedFor: '203.0.113.7',
+    payloadCountry: 'CA',
+  },
+});
+await assertCanonicalTintContract('GET', 'https://tint.sh/tint', {
+  // No inbound headers — exercises every fallback branch
+  // (UA → 'curl', X-Forwarded-For → '', country → 'unknown').
+  inboundHeaders: {},
+  forwarding: {
+    outboundUserAgent: 'curl',
+    outboundXForwardedFor: '',
+    payloadCountry: 'unknown',
+  },
+});
 
 // Every preview-/tint variant runs the full preview contract. The
-// canonical side handles BOTH /tint and /tint/, so the preview
-// gate must apply equally to both — otherwise a regression that
-// keeps the gate on /tint but forgets /tint/ would re-expose
-// preview traffic to GitHub's download counter via the
-// trailing-slash variant.
+// canonical side handles /tint, /tint/, and /tint?query, so the
+// preview gate must apply equally to all three — otherwise a
+// regression that keeps the gate on /tint but forgets /tint/ or
+// `?query` would re-expose preview traffic to GitHub's download
+// counter via the variant the gate forgot.
 const previewBase = 'https://feat-foo-tint-website.example.workers.dev';
 await assertPreviewTintContract('GET', `${previewBase}/tint`);
 await assertPreviewTintContract('GET', `${previewBase}/tint/`);
 await assertPreviewTintContract('HEAD', `${previewBase}/tint`);
 await assertPreviewTintContract('HEAD', `${previewBase}/tint/`);
+await assertPreviewTintContract('GET', `${previewBase}/tint?utm_source=share&ref=foo`);
 
-// Preview-host asset: returns ASSETS response with X-Robots-Tag
-// noindex header appended. Copilot flagged this in round 4 — without
-// the header, search engines could index preview URLs as duplicate
-// content of tint.sh.
-{
-  const response = await call('GET', 'https://feat-foo-tint-website.example.workers.dev/');
-  check(response.status === 200, `GET preview/: status ${response.status}, want 200`);
-  const robotsHeader = response.headers.get('x-robots-tag');
+// X-Robots-Tag noindex contract on asset responses. Per-surface:
+//   - non-canonical hosts MUST emit `noindex, nofollow` on every
+//     asset response, regardless of content type
+//   - canonical host MUST NOT emit it on any response
+//
+// Tested across multiple content types (HTML, XML, plain text)
+// because a regression that gates the header by content type
+// (e.g., HTML-only) would silently re-expose preview
+// `sitemap-index.xml` and `robots.txt` to crawlers — those are
+// structurally important for search-engine signals so it would
+// be a bigger SEO leak than the HTML pages themselves.
+const noindexAssetPaths = ['/', '/sitemap-index.xml', '/robots.txt'];
+for (const path of noindexAssetPaths) {
+  // Preview must have noindex header.
+  const previewResponse = await call('GET', `${previewBase}${path}`);
   check(
-    robotsHeader === 'noindex, nofollow',
-    `GET preview/: X-Robots-Tag should be 'noindex, nofollow', got ${JSON.stringify(robotsHeader)}`,
+    previewResponse.status === 200,
+    `GET preview${path}: status ${previewResponse.status}, want 200`,
   );
-}
-
-// Canonical-host asset: returns ASSETS response WITHOUT X-Robots-Tag.
-// The header must not bleed onto production — it would deindex tint.sh.
-{
-  const response = await call('GET', 'https://tint.sh/');
-  check(response.status === 200, `GET tint.sh/: status ${response.status}, want 200`);
   check(
-    response.headers.get('x-robots-tag') === null,
-    `GET tint.sh/: X-Robots-Tag must NOT be set on canonical host, got ${response.headers.get('x-robots-tag')}`,
+    previewResponse.headers.get('x-robots-tag') === 'noindex, nofollow',
+    `GET preview${path}: X-Robots-Tag must be 'noindex, nofollow' on every preview asset response (regardless of content type), got ${JSON.stringify(previewResponse.headers.get('x-robots-tag'))}`,
+  );
+
+  // Canonical must NOT have noindex header (would deindex tint.sh).
+  const canonicalResponse = await call('GET', `https://tint.sh${path}`);
+  check(
+    canonicalResponse.status === 200,
+    `GET tint.sh${path}: status ${canonicalResponse.status}, want 200`,
+  );
+  check(
+    canonicalResponse.headers.get('x-robots-tag') === null,
+    `GET tint.sh${path}: X-Robots-Tag must NOT be set on canonical host (would deindex tint.sh), got ${JSON.stringify(canonicalResponse.headers.get('x-robots-tag'))}`,
   );
 }
 

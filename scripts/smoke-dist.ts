@@ -311,18 +311,16 @@ function checkPlausibleSnippet(html: string, sourcePath: string): void {
 // that nothing else in the pipeline detects the loss of. See call
 // site comment for the rationale.
 //
-// Approach: strip JSONC comments first, then regex on the
-// uncommented text. We don't JSON.parse afterwards because
-// wrangler also accepts trailing commas, and writing a parser
-// permissive enough to handle every JSONC relaxation without
-// false rejections (particularly trailing commas) needs either a
-// real JSONC parser dep or fragile regex. Stripping comments
-// before regex matching is sufficient because:
-//   - It prevents `// "preview_urls": true` from false-passing
-//     (raw-text regex without comment stripping would match the
-//     literal text inside a comment, defeating the gate).
-//   - It tolerates trailing commas and other JSONC relaxations
-//     that don't affect entry presence (we never parse).
+// Approach: convert JSONC to JSON (strip block comments, strip
+// line comments, strip trailing commas) and then parse, so the
+// assertions can address structural property paths
+// (`config.build?.command`, `config.preview_urls`) rather than
+// raw-text regex. Property-path assertions guarantee the entry
+// is at the top level — a future nested entry with the same
+// literal value cannot false-pass them. The three regex strips
+// together cover the JSONC relaxations wrangler accepts; we
+// don't add a JSONC parser dep because the format we use is
+// small and hand-written, and the strips are short and explicit.
 async function checkWranglerConfig(): Promise<void> {
   let raw = '';
   try {
@@ -332,28 +330,41 @@ async function checkWranglerConfig(): Promise<void> {
     return;
   }
 
-  // Strip block comments first, then line comments. The line-
-  // comment regex preserves `://` and similar so URL strings
-  // don't get mangled (none today, but the Worker config could
-  // grow a `route` entry).
-  const uncommented = raw
+  // Strip block comments, then line comments (line-comment regex
+  // preserves `://` so URLs in strings don't get mangled — none
+  // today but the file could grow a `route` entry), then trailing
+  // commas before closing `}` or `]`.
+  const json = raw
     .replace(/\/\*[\s\S]*?\*\//g, '')
-    .replace(/(^|[^:])\/\/.*$/gm, (_, lead) => lead);
+    .replace(/(^|[^:])\/\/.*$/gm, (_, lead) => lead)
+    .replace(/,(\s*[}\]])/g, '$1');
+
+  let config: { build?: { command?: string }; preview_urls?: boolean };
+  try {
+    config = JSON.parse(json);
+  } catch (error) {
+    errors.push(
+      `wrangler.jsonc: failed to parse after JSONC normalization: ${(error as Error).message} — if this is a valid JSONC construct we don't yet handle, extend the strip in scripts/smoke-dist.ts checkWranglerConfig`,
+    );
+    return;
+  }
 
   // build.command must reference the canonical script. The chain
-  // lives in package.json `check`; this assertion verifies
-  // wrangler calls into it rather than re-spelling it.
+  // lives in package.json `check`; this property-path assertion
+  // verifies the *top-level* build.command (not just any literal
+  // appearance somewhere in the file).
   check(
-    /"command"\s*:\s*"npm run check"/.test(uncommented),
-    'wrangler.jsonc: build.command must be exactly "npm run check" — keeps the deploy gate in sync with .github/workflows/ci.yml via package.json',
+    config.build?.command === 'npm run check',
+    `wrangler.jsonc: top-level build.command must be exactly "npm run check" (got ${JSON.stringify(config.build?.command)}) — keeps the deploy gate in sync with .github/workflows/ci.yml via package.json`,
   );
 
-  // preview_urls must be true so per-PR preview hostnames actually
-  // serve the deployed Worker version. If removed, the next deploy
-  // silently disables previews; nothing else in the pipeline notices.
+  // preview_urls must be true at the top level so per-PR preview
+  // hostnames actually serve the deployed Worker version. If
+  // removed or set to false, the next deploy silently disables
+  // previews; nothing else in the pipeline notices.
   check(
-    /"preview_urls"\s*:\s*true/.test(uncommented),
-    'wrangler.jsonc: "preview_urls": true must be present — without it, preview hostnames return Cloudflare\'s "preview disabled" page after deploy',
+    config.preview_urls === true,
+    `wrangler.jsonc: top-level "preview_urls" must be true (got ${JSON.stringify(config.preview_urls)}) — without it, preview hostnames return Cloudflare's "preview disabled" page after deploy`,
   );
 }
 
