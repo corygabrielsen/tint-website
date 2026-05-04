@@ -1,0 +1,347 @@
+---
+// Install command widget: a tabbed code block where each tab body is a
+// shiki-tokenised <code> that doubles as a click-to-copy button.
+//
+// - Tabs are driven by hidden radio inputs + a `:has(input:nth-of-type(N):checked)`
+//   selector chain, so active-state switching is pure CSS with no JS.
+// - The whole code+icon row is a single <button data-copy data-code=…>.
+//   Clicking anywhere on the row copies the verbatim command from
+//   `data-code` (NOT from textContent — shiki tokenises the source into
+//   spans whose textContent collapses runs of significant whitespace, and
+//   we want the clipboard payload to round-trip the original `code` prop
+//   byte-for-byte so commands with intentional spacing aren't corrupted).
+// - The copy/check icon swap is the visual feedback; an sr-only
+//   aria-live region announces "Copied" / "Copy failed" so screen-reader
+//   users get the same feedback. The button's aria-label includes the full
+//   command so AT users can review the payload before activating, instead
+//   of hearing only a generic "Copy command" label that hides what's about
+//   to land in their clipboard.
+// - `:focus-visible` paints a 2px outline on the row so keyboard users see
+//   which command currently has focus (the `all: unset` reset on the
+//   button strips the browser default focus ring and we have to put one
+//   back).
+// - Long commands wrap terminal-style (any character is a valid break
+//   point) instead of producing a horizontal scrollbar inside the click
+//   row, so users can read the entire command before pasting it into a
+//   shell.
+//
+// HTML validity note: <button>'s WHATWG content model is "phrasing content,
+// no interactive descendants, no descendant with tabindex". The default
+// <Code> output is <pre tabindex="0"><code>…</code></pre>, which violates
+// both clauses (<pre> is flow content; tabindex on a descendant is
+// forbidden). Two surgical fixes flip it to a valid button child:
+//   1. `inline` makes Astro emit <code>…</code> directly (no <pre>).
+//      <code> is phrasing content, so it's allowed inside <button>.
+//   2. `stripTabindex` deletes the shiki-default `tabindex="0"` from the
+//      wrapper element; transformers run after Astro's pre→code rename, so
+//      the hook receives the renamed node and we mutate it in place.
+import { randomUUID } from 'node:crypto';
+import { Code } from 'astro:components';
+import type { ShikiTransformer } from 'shiki';
+
+interface Command {
+  // Visible tab label only. NOT used as a DOM identifier — input ids and
+  // label `for` attributes are derived from the array index instead, so
+  // labels with whitespace, punctuation, or duplicates are all safe.
+  readonly label: string;
+  readonly code: string;
+}
+
+interface Props {
+  // Tuple of exactly two: the tab-selection CSS uses :nth-of-type(1) and
+  // :nth-of-type(2) selectors (see the .install-widget:has(...) blocks
+  // below). A third tab would need matching :nth-of-type(3) rules, so we
+  // pin the type rather than silently render a broken third tab.
+  commands: readonly [Command, Command];
+  // Unique id for this widget instance. Defaults to a per-render UUID so
+  // two widgets on the same page don't collide on the radio name and the
+  // `${id}-${i}` ids that wire labels to inputs. Override only when you
+  // need to target the fieldset from outside (tests, anchor links, etc.).
+  id?: string;
+}
+
+const { commands, id = `install-widget-${randomUUID()}` } = Astro.props;
+
+const stripTabindex: ShikiTransformer = {
+  pre(node) {
+    if (node.properties && 'tabindex' in node.properties) {
+      delete node.properties.tabindex;
+    }
+  },
+};
+---
+
+<fieldset class="install-widget" id={id}>
+  <legend class="sr-only">Install method</legend>
+  {/* Three separate maps so the radios, labels, and panels stay in stable
+      source order: the :nth-of-type / :nth-child selectors below match by
+      position, not id, so a single combined loop would shuffle the order
+      and break the active-tab mapping. */}
+  {commands.map((_cmd, i) => (
+    <input
+      class="sr-only"
+      type="radio"
+      name={`${id}-radios`}
+      id={`${id}-${i}`}
+      checked={i === 0}
+    />
+  ))}
+  <div class="tabs">
+    {commands.map((cmd, i) => (
+      <label for={`${id}-${i}`}>{cmd.label}</label>
+    ))}
+  </div>
+  <div class="panels">
+    {commands.map((cmd) => (
+      <div class="panel">
+        <button
+          data-copy
+          data-code={cmd.code}
+          type="button"
+          class="command"
+          aria-label={`Copy ${cmd.code}`}
+        >
+          <Code
+            code={cmd.code}
+            lang="sh"
+            theme="css-variables"
+            inline
+            class="command-script"
+            transformers={[stripTabindex]}
+          />
+          <span class="copy-status">
+            <svg
+              class="icon-copy"
+              width="16"
+              height="16"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="1.5"
+              stroke-linecap="square"
+              aria-hidden="true"
+            >
+              <path d="M8.75 8.75V2.75H21.25V15.25H15.25M15.25 8.75H2.75V21.25H15.25V8.75Z" />
+            </svg>
+            <svg
+              class="icon-check"
+              width="16"
+              height="16"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linecap="square"
+              aria-hidden="true"
+            >
+              <path d="M2.75 15.0938L9 20.25L21.25 3.75" />
+            </svg>
+            <span class="copy-announce sr-only" aria-live="polite"></span>
+          </span>
+        </button>
+      </div>
+    ))}
+  </div>
+</fieldset>
+
+<style>
+  .install-widget {
+    border: 1px solid var(--border);
+    background: var(--code-bg);
+    /* fieldset and flex-item defaults treat min-inline-size as min-content,
+       which lets long install commands stretch the widget past the
+       viewport. Resetting both lets the inner code element handle layout
+       instead. */
+    min-width: 0;
+    min-inline-size: 0;
+  }
+
+  .install-widget .panels,
+  .install-widget .panel {
+    min-width: 0;
+  }
+
+  .install-widget .tabs {
+    display: flex;
+    border-bottom: 1px solid var(--border);
+    font-family: var(--mono);
+    font-size: 0.875rem;
+  }
+
+  .install-widget .tabs label {
+    padding: 0.5rem 1rem;
+    cursor: pointer;
+    color: var(--muted);
+    border-right: 1px solid var(--border);
+    user-select: none;
+  }
+
+  .install-widget .tabs label:hover {
+    color: var(--fg);
+  }
+
+  /* Active tab "pops out" of the panel by switching to the page bg. Extend
+     with another :nth pair to add a third tab. */
+  .install-widget:has(input:nth-of-type(1):checked) .tabs label:nth-child(1),
+  .install-widget:has(input:nth-of-type(2):checked) .tabs label:nth-child(2) {
+    color: var(--fg);
+    background: var(--bg);
+  }
+
+  .install-widget:has(input:nth-of-type(1):focus-visible) .tabs label:nth-child(1),
+  .install-widget:has(input:nth-of-type(2):focus-visible) .tabs label:nth-child(2) {
+    outline: 2px solid var(--fg);
+    outline-offset: -2px;
+  }
+
+  /* :has()-capable browsers hide all panels and reveal the active one;
+     browsers without :has() show all panels (degraded but functional
+     instead of a blank widget). */
+  @supports selector(:has(*)) {
+    .install-widget .panels .panel {
+      display: none;
+    }
+
+    .install-widget:has(input:nth-of-type(1):checked) .panels .panel:nth-child(1),
+    .install-widget:has(input:nth-of-type(2):checked) .panels .panel:nth-child(2) {
+      display: block;
+    }
+  }
+
+  /* The clickable command row spans the full panel and lays the body next
+     to the icon column. `all: unset` strips browser button styles; we then
+     pin box-sizing back to border-box (the global * reset is undone by the
+     `all: unset` cascade) and re-impose the panel typography on the inner
+     <code> below. */
+  .install-widget .command {
+    all: unset;
+    box-sizing: border-box;
+    display: flex;
+    width: 100%;
+    max-width: 100%;
+    cursor: pointer;
+    /* Anchor the icon to the top of the row so it sits beside the first
+       line of long wrapped commands instead of drifting to the visual
+       middle of a multi-line block. */
+    align-items: flex-start;
+    gap: 0.75rem;
+    padding: 0.75rem 1rem;
+    color: var(--fg);
+    font-family: var(--mono);
+  }
+
+  .install-widget .command:hover {
+    background: color-mix(in srgb, var(--code-bg) 90%, var(--fg) 10%);
+  }
+
+  /* `all: unset` above strips the browser default focus ring, so put one
+     back. Negative offset matches the tab focus rule a few blocks up so
+     keyboard focus styling reads as one consistent treatment across the
+     widget. */
+  .install-widget .command:focus-visible {
+    outline: 2px solid var(--fg);
+    outline-offset: -2px;
+  }
+
+  /* The script slot is the inner <code> that holds shiki's token spans.
+     `flex: 1 1 0; min-width: 0` lets it shrink below its intrinsic content
+     width so the wrap rules below can break long URLs at the row's right
+     edge instead of pushing the icon off-screen. `<code>` is inline by
+     default; switching to block + `pre-wrap` reproduces the terminal-style
+     layout we'd get from <pre> while keeping the markup valid inside the
+     parent <button> (block elements aren't allowed there). `break-all`
+     lets long URLs and paths split mid-character — honesty over
+     compactness, since `…`-style truncation obscures what users are
+     piping into a shell. */
+  .install-widget .command-script {
+    display: block;
+    flex: 1 1 0;
+    min-width: 0;
+    font-family: inherit;
+    font-size: 0.875rem;
+    white-space: pre-wrap;
+    word-break: break-all;
+  }
+
+  .install-widget .copy-status {
+    display: inline-flex;
+    align-items: center;
+    flex-shrink: 0;
+  }
+
+  /* Icon swap is driven by the [data-copied] attribute the script toggles
+     on the parent <button data-copy>. */
+  .install-widget .icon-copy {
+    display: block;
+    width: 16px;
+    height: 16px;
+    color: color-mix(in srgb, var(--muted) 55%, var(--bg) 45%);
+  }
+
+  .install-widget [data-copied] .icon-copy {
+    display: none;
+  }
+
+  .install-widget .icon-check {
+    display: none;
+    width: 16px;
+    height: 16px;
+  }
+
+  .install-widget [data-copied] .icon-check {
+    display: block;
+  }
+</style>
+
+<script>
+  // Astro compiles this <script> as TypeScript and ships compiled JS, so the
+  // generic type parameters below are erased at build time.
+  const RESET_MS = 1500;
+  // Per-button timer so a fast second click doesn't let an earlier reset
+  // wipe the later flash mid-flight.
+  const timers = new WeakMap<HTMLButtonElement, number>();
+
+  document
+    .querySelectorAll<HTMLButtonElement>('.install-widget [data-copy]')
+    .forEach((btn) => {
+      // Live region for screen-reader copy feedback. The visual icon swap
+      // is announced separately to AT users via this region's text update.
+      const announce = btn.querySelector<HTMLSpanElement>('.copy-announce');
+
+      btn.addEventListener('click', async () => {
+        // Source the clipboard payload from `data-code` rather than
+        // textContent: shiki tokenises the visible code into spans whose
+        // concatenated textContent normalises whitespace and would
+        // silently corrupt commands with intentional repeated spaces or
+        // newlines.
+        const text = btn.dataset.code ?? '';
+        let success = false;
+        try {
+          await navigator.clipboard.writeText(text);
+          success = true;
+        } catch (err) {
+          console.error('Clipboard write failed:', err);
+        }
+
+        if (success) {
+          btn.setAttribute('data-copied', '');
+          if (announce) announce.textContent = 'Copied';
+        } else if (announce) {
+          // Distinct text from the success path so aria-live re-announces
+          // even on consecutive failures (writing the same value twice
+          // doesn't trigger an announcement in most screen readers).
+          announce.textContent = 'Copy failed';
+        }
+
+        const prev = timers.get(btn);
+        if (prev !== undefined) window.clearTimeout(prev);
+        timers.set(
+          btn,
+          window.setTimeout(() => {
+            btn.removeAttribute('data-copied');
+            if (announce) announce.textContent = '';
+          }, RESET_MS),
+        );
+      });
+    });
+</script>

@@ -1,21 +1,27 @@
 ---
-import { Code } from 'astro:components';
 import Layout from '~/layouts/Layout.astro';
-import CopyButton from '~/components/CopyButton.astro';
 import GitHubMark from '~/components/GitHubMark.astro';
+import InstallWidget from '~/components/InstallWidget.astro';
 
 const repoUrl = 'https://github.com/corygabrielsen/tint';
 
 // Install lines stay tight on purpose: mkdir/PATH guidance live in the tint
 // README, not here. `brew install user/repo/formula` auto-taps the third-party
-// tap on first install, so no `brew tap` step is needed.
+// tap on first install, so no `brew tap` step is needed. The curl one-liner
+// is long enough to wrap inside the install widget's panel; that's expected
+// — see the wrap rationale on InstallWidget.astro.
+//
+// `as const` narrows this to a 2-tuple so it satisfies InstallWidget's
+// `readonly [Command, Command]` prop. Adding a third install method here
+// without first extending the widget's :nth-of-type CSS would now be a
+// compile error rather than a silently broken tab.
 const installCommands = [
   { label: 'brew', code: 'brew install corygabrielsen/tint/tint' },
   {
     label: 'curl',
     code: `curl -fsSL ${repoUrl}/releases/latest/download/tint -o ~/.local/bin/tint && chmod +x ~/.local/bin/tint`,
   },
-];
+] as const;
 
 // Hue-sorted colors from public/favicon.svg.
 const themeColors = [
@@ -38,7 +44,10 @@ const themeColors = [
 ];
 ---
 
-<Layout title="tint - Terminal Theme Switcher">
+<Layout
+  title="tint - Terminal Theme Switcher"
+  description="Terminal theme switcher with live preview, directory-based switching, and custom theme support."
+>
   <main>
     <header>
       <h1>tint</h1>
@@ -50,31 +59,7 @@ const themeColors = [
       <p class="tagline">Terminal theme switcher.</p>
     </header>
 
-    {/* Pure-CSS tabbed code blocks. The radios share the <fieldset> as a
-        single parent and stay in stable source order so the
-        `:has(input:nth-of-type(N):checked)` + `:nth-child(N)` selectors in
-        global.css correctly map each radio to its label and panel. That
-        positional invariant is why this widget renders three separate
-        `installCommands.map()` passes instead of one combined loop. */}
-    <fieldset class="install-tabs">
-      <legend class="sr-only">Install method</legend>
-      {installCommands.map((cmd, i) => (
-        <input class="sr-only" type="radio" name="install" id={`install-${cmd.label}`} checked={i === 0} />
-      ))}
-      <div class="tabs">
-        {installCommands.map((cmd) => (
-          <label for={`install-${cmd.label}`}>{cmd.label}</label>
-        ))}
-      </div>
-      <div class="panels">
-        {installCommands.map((cmd) => (
-          <div class="panel">
-            <CopyButton code={cmd.code} />
-            <Code code={cmd.code} lang="sh" theme="css-variables" />
-          </div>
-        ))}
-      </div>
-    </fieldset>
+    <InstallWidget commands={installCommands} />
 
     {/* TODO: Add a small static poster image for MP4 load/decode failures. */}
     <video
