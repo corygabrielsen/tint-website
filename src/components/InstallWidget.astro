@@ -1,12 +1,12 @@
 ---
 // Install command widget: a tabbed code block where each tab body is a
-// shiki-tokenised <code> that doubles as a click-to-copy button.
+// shiki-tokenized <code> that doubles as a click-to-copy button.
 //
 // - Tabs are driven by hidden radio inputs + a `:has(input:nth-of-type(N):checked)`
 //   selector chain, so active-state switching is pure CSS with no JS.
 // - The whole code+icon row is a single <button data-copy data-code=…>.
 //   Clicking anywhere on the row copies the verbatim command from
-//   `data-code` (NOT from textContent — shiki tokenises the source into
+//   `data-code` (NOT from textContent — shiki tokenizes the source into
 //   spans whose textContent collapses runs of significant whitespace, and
 //   we want the clipboard payload to round-trip the original `code` prop
 //   byte-for-byte so commands with intentional spacing aren't corrupted).
@@ -148,6 +148,17 @@ const stripTabindex: ShikiTransformer = {
   .install-widget {
     border: 1px solid var(--border);
     background: var(--code-bg);
+    /* <fieldset> doesn't stretch to fill a flex parent like other block
+       children do — its UA-set `min-inline-size: min-content` plus
+       implicit `width: auto` leaves it sized to its content. Setting
+       width explicitly fixes that and caps at 60rem: 15/16 of main's
+       64rem max, leaving a 2rem buffer on each side at the page max
+       width so the install widget sits visually narrower than the demo
+       media. At narrower viewports the cap doesn't engage and the
+       install widget fills main edge-to-edge; margin-inline: auto
+       centers it once the cap engages. */
+    width: min(60rem, 100%);
+    margin-inline: auto;
     /* fieldset and flex-item defaults treat min-inline-size as min-content,
        which lets long install commands stretch the widget past the
        viewport. Resetting both lets the inner code element handle layout
@@ -310,8 +321,8 @@ const stripTabindex: ShikiTransformer = {
 
       btn.addEventListener('click', async () => {
         // Source the clipboard payload from `data-code` rather than
-        // textContent: shiki tokenises the visible code into spans whose
-        // concatenated textContent normalises whitespace and would
+        // textContent: shiki tokenizes the visible code into spans whose
+        // concatenated textContent normalizes whitespace and would
         // silently corrupt commands with intentional repeated spaces or
         // newlines.
         const text = btn.dataset.code ?? '';
