@@ -335,10 +335,19 @@ await checkNonEmptyFile('demo.gif');
 await checkNonEmptyFile('robots.txt');
 await checkNonEmptyFile('sitemap-index.xml');
 
-// Worker-route shadowing guard. Each entry corresponds to a path
-// `worker/index.ts` handles in code; a static file with the same name
-// would be served by the assets binding and never reach the handler.
+// Worker-route shadowing guard. A static file with the same name as a
+// path `worker/index.ts` handles in code would be served by the assets
+// binding and never reach the handler. Add an entry here for every
+// future `/foo` route the Worker grows.
 await checkAbsent('tint');
+
+// Dead-artifact guard. `CNAME` is GitHub-Pages-specific machinery
+// (tells Pages which custom domain to serve at). This site deploys to
+// Cloudflare Workers; a CNAME file in dist/ would ship as a static
+// asset at `tint.sh/CNAME`, exposing a stale "we're served from Pages"
+// signal that contradicts the actual hosting topology and confuses
+// anyone debugging.
+await checkAbsent('CNAME');
 
 if (errors.length > 0) {
   console.error('dist smoke test failed:');
