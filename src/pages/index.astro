@@ -7,17 +7,14 @@ const repoUrl = 'https://github.com/corygabrielsen/tint';
 
 // Install lines stay tight on purpose: mkdir/PATH guidance live in the tint
 // README, not here. `brew install user/repo/formula` auto-taps the third-party
-// tap on first install, so no `brew tap` step is needed.
-//
-// The curl one-liner pulls from `tint.sh/tint`, the canonical long-term
-// download path served from this site (CNAME). Keeping the URL on our own
-// domain (vs. the GitHub release asset URL) shortens the visible command and
-// gives us a stable redirect target if the release artifact moves.
+// tap on first install, so no `brew tap` step is needed. The curl one-liner
+// is long enough to wrap inside the install widget's panel; that's expected
+// — see the wrap rationale on InstallWidget.astro.
 const installCommands = [
   { label: 'brew', code: 'brew install corygabrielsen/tint/tint' },
   {
     label: 'curl',
-    code: 'curl -fsSL https://tint.sh/tint -o ~/.local/bin/tint && chmod +x ~/.local/bin/tint',
+    code: `curl -fsSL ${repoUrl}/releases/latest/download/tint -o ~/.local/bin/tint && chmod +x ~/.local/bin/tint`,
   },
 ];
 
