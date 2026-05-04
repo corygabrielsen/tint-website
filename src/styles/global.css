@@ -118,7 +118,9 @@ body {
 }
 
 main {
-  width: min(33rem, calc(100% - 3rem));
+  /* 64rem (Tailwind max-w-5xl, the modern modal answer for single-column
+     media-led composition); narrow controls cap themselves below this. */
+  width: min(64rem, calc(100% - 3rem));
   margin: 0 auto;
   padding: 4rem 0;
   display: flex;
