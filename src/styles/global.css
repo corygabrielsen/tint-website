@@ -349,6 +349,13 @@ a:hover {
   color: var(--fg);
 }
 
+@media (prefers-reduced-motion: reduce) {
+  .demo-play-overlay,
+  .github-link a {
+    transition: none;
+  }
+}
+
 /* =============================================================================
    7. Copyright
    color-mix at 25% fg / 75% bg fades the line so it sits below the GitHub

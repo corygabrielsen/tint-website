@@ -136,7 +136,7 @@ const stripTabindex: ShikiTransformer = {
             >
               <path d="M2.75 15.0938L9 20.25L21.25 3.75" />
             </svg>
-            <span class="copy-announce sr-only" aria-live="polite"></span>
+            <span class="copy-announce sr-only" data-copy-announce aria-live="polite"></span>
           </span>
         </button>
       </div>
@@ -305,54 +305,7 @@ const stripTabindex: ShikiTransformer = {
 </style>
 
 <script>
-  // Astro compiles this <script> as TypeScript and ships compiled JS, so the
-  // generic type parameters below are erased at build time.
-  const RESET_MS = 1500;
-  // Per-button timer so a fast second click doesn't let an earlier reset
-  // wipe the later flash mid-flight.
-  const timers = new WeakMap<HTMLButtonElement, number>();
+  import { wireCopyButtons } from '~/scripts/copy-buttons';
 
-  document
-    .querySelectorAll<HTMLButtonElement>('.install-widget [data-copy]')
-    .forEach((btn) => {
-      // Live region for screen-reader copy feedback. The visual icon swap
-      // is announced separately to AT users via this region's text update.
-      const announce = btn.querySelector<HTMLSpanElement>('.copy-announce');
-
-      btn.addEventListener('click', async () => {
-        // Source the clipboard payload from `data-code` rather than
-        // textContent: shiki tokenizes the visible code into spans whose
-        // concatenated textContent normalizes whitespace and would
-        // silently corrupt commands with intentional repeated spaces or
-        // newlines.
-        const text = btn.dataset.code ?? '';
-        let success = false;
-        try {
-          await navigator.clipboard.writeText(text);
-          success = true;
-        } catch (err) {
-          console.error('Clipboard write failed:', err);
-        }
-
-        if (success) {
-          btn.setAttribute('data-copied', '');
-          if (announce) announce.textContent = 'Copied';
-        } else if (announce) {
-          // Distinct text from the success path so aria-live re-announces
-          // even on consecutive failures (writing the same value twice
-          // doesn't trigger an announcement in most screen readers).
-          announce.textContent = 'Copy failed';
-        }
-
-        const prev = timers.get(btn);
-        if (prev !== undefined) window.clearTimeout(prev);
-        timers.set(
-          btn,
-          window.setTimeout(() => {
-            btn.removeAttribute('data-copied');
-            if (announce) announce.textContent = '';
-          }, RESET_MS),
-        );
-      });
-    });
+  wireCopyButtons('.install-widget [data-copy]');
 </script>

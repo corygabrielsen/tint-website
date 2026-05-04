@@ -165,6 +165,7 @@ function inlineDescriptionParts(text: string): InlineDescriptionPart[] {
               class="feature-command"
               data-feature-command
               data-feature-copy
+              data-copy
               data-code={demo.command}
               aria-label={`Copy ${demo.command}`}
             >
@@ -196,7 +197,7 @@ function inlineDescriptionParts(text: string): InlineDescriptionPart[] {
                 >
                   <path d="M2.75 15.0938L9 20.25L21.25 3.75" />
                 </svg>
-                <span class="feature-copy-announce sr-only" aria-live="polite"></span>
+                <span class="feature-copy-announce sr-only" data-copy-announce aria-live="polite"></span>
               </span>
             </button>
           </div>
@@ -232,39 +233,10 @@ function inlineDescriptionParts(text: string): InlineDescriptionPart[] {
   </main>
 
 <script>
-  const FEATURE_COPY_RESET_MS = 1500;
-  const featureCopyTimers = new WeakMap<HTMLButtonElement, number>();
+  import { wireCopyButtons } from '~/scripts/copy-buttons';
 
-  document.querySelectorAll<HTMLButtonElement>('[data-feature-copy]').forEach((btn) => {
-    const announce = btn.querySelector<HTMLSpanElement>('.feature-copy-announce');
-
-    btn.addEventListener('click', async () => {
-      const text = btn.dataset.code ?? '';
-      let success = false;
-      try {
-        await navigator.clipboard.writeText(text);
-        success = true;
-      } catch (err) {
-        console.error('Feature command clipboard write failed:', err);
-      }
-
-      if (success) {
-        btn.setAttribute('data-copied', '');
-        if (announce) announce.textContent = 'Copied';
-      } else if (announce) {
-        announce.textContent = 'Copy failed';
-      }
-
-      const prev = featureCopyTimers.get(btn);
-      if (prev !== undefined) window.clearTimeout(prev);
-      featureCopyTimers.set(
-        btn,
-        window.setTimeout(() => {
-          btn.removeAttribute('data-copied');
-          if (announce) announce.textContent = '';
-        }, FEATURE_COPY_RESET_MS),
-      );
-    });
+  wireCopyButtons('[data-feature-copy]', {
+    errorPrefix: 'Feature command clipboard write failed',
   });
 </script>
 
@@ -443,15 +415,7 @@ function inlineDescriptionParts(text: string): InlineDescriptionPart[] {
       if (event.matches) isDemoUserPaused = true;
       scheduleDemoPlaybackUpdate();
     };
-    if ('addEventListener' in reducedMotionQuery) {
-      reducedMotionQuery.addEventListener('change', handleReducedMotionChange);
-    } else {
-      (
-        reducedMotionQuery as MediaQueryList & {
-          addListener: (listener: (event: MediaQueryListEvent) => void) => void;
-        }
-      ).addListener(handleReducedMotionChange);
-    }
+    reducedMotionQuery.addEventListener('change', handleReducedMotionChange);
     scheduleDemoPlaybackUpdate();
   }
 </script>

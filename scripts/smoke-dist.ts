@@ -68,6 +68,41 @@ function extractVideoSrcs(html: string): string[] {
     .filter((src): src is string => Boolean(src));
 }
 
+function extractScriptSrcs(html: string): string[] {
+  return [...html.matchAll(/<script\b[^>]*\bsrc\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+))/gi)]
+    .map((match) => match[1] ?? match[2] ?? match[3])
+    .filter((src): src is string => Boolean(src));
+}
+
+async function readPageScripts(html: string): Promise<string[]> {
+  const scripts = [...html.matchAll(/<script\b[^>]*>([\s\S]*?)<\/script>/g)].map((m) => m[1] ?? '');
+  const seen = new Set<string>();
+
+  async function readScriptPath(path: string): Promise<void> {
+    if (seen.has(path)) return;
+    seen.add(path);
+
+    const body = await readDistFile(path);
+    scripts.push(body);
+
+    for (const match of body.matchAll(/\bfrom\s*["']([^"']+)["']/g)) {
+      const spec = match[1];
+      if (spec?.startsWith('.')) {
+        const resolved = new URL(spec, `https://tint.sh/${path}`).pathname.slice(1);
+        await readScriptPath(resolved);
+      }
+    }
+  }
+
+  for (const src of extractScriptSrcs(html)) {
+    if (src.startsWith('/') && !src.startsWith('//')) {
+      await readScriptPath(src.slice(1));
+    }
+  }
+
+  return scripts;
+}
+
 function decodeHtmlEntities(s: string): string {
   return s
     .replace(/&amp;/g, '&')
@@ -85,6 +120,16 @@ function getAttr(tag: string, name: string): string | undefined {
 
 function escapeRegex(s: string): string {
   return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function checkRootLocalAssetPath(kind: string, path: string): void {
+  check(!path.startsWith('/'), `${kind} must be relative, got ${path}`);
+  check(!/^[a-z][a-z0-9+.-]*:/i.test(path), `${kind} must not be absolute, got ${path}`);
+  check(
+    !path.split('/').some((segment) => segment === '.' || segment === '..'),
+    `${kind} must not use dot segments, got ${path}`,
+  );
+  check(!path.includes('/'), `${kind} must be a root-local asset filename, got ${path}`);
 }
 
 // Every <link rel="icon" href="…"> on the page must point at a file that
@@ -151,14 +196,39 @@ function checkVideoElements(html: string): void {
   }
 }
 
-function checkDemoVideoController(html: string): void {
-  const scripts = [...html.matchAll(/<script\b[^>]*>([\s\S]*?)<\/script>/g)].map((m) => m[1] ?? '');
+function checkDemoFallbackLinks(html: string): void {
+  const frames = [...html.matchAll(/<div\b[^>]*\bdata-demo-frame\b[^>]*>[\s\S]*?<\/div>/g)].map(
+    (m) => m[0],
+  );
+
+  for (const [i, frame] of frames.entries()) {
+    const videoTag = frame.match(/<video\b[^>]*>/)?.[0];
+    const videoSrc = videoTag ? getAttr(videoTag, 'src') : undefined;
+    const fallback = frame.match(
+      /<noscript\b[\s\S]*?<a\b[^>]*\bhref\s*=\s*"([^"]+)"[^>]*>[\s\S]*?<\/a>[\s\S]*?<\/noscript>/,
+    );
+    const fallbackHref = fallback?.[1];
+
+    check(Boolean(videoSrc), `demo video frame ${i}: missing video src`);
+    check(Boolean(fallbackHref), `demo video frame ${i}: missing no-JS fallback link`);
+    if (videoSrc && fallbackHref) {
+      check(
+        fallbackHref === videoSrc,
+        `demo video frame ${i}: fallback href ${fallbackHref} does not match video src ${videoSrc}`,
+      );
+      checkRootLocalAssetPath(`demo fallback href ${i}`, fallbackHref);
+    }
+  }
+}
+
+function checkDemoVideoController(scripts: string[]): void {
   const wired = scripts.some(
     (s) =>
       s.includes('data-demo-frame') &&
       s.includes('data-demo-video') &&
       s.includes('IntersectionObserver') &&
       s.includes('prefers-reduced-motion: reduce') &&
+      s.includes('matchMedia') &&
       s.includes('data-demo-paused') &&
       /addEventListener\(["']click["']/.test(s) &&
       /addEventListener\(["']keydown["']/.test(s) &&
@@ -168,7 +238,45 @@ function checkDemoVideoController(html: string): void {
       s.includes('.pause()') &&
       s.includes('.play()'),
   );
-  check(wired, 'no inlined <script> wires clickable viewport-aware demo video playback');
+  check(wired, 'no bundled script wires clickable viewport-aware demo video playback');
+}
+
+function checkCopyButtons(html: string, scripts: string[]): void {
+  const buttons = [
+    ...html.matchAll(
+      /<button\b(?:"[^"]*"|'[^']*'|[^'">])*\bdata-copy\b(?:"[^"]*"|'[^']*'|[^'">])*>[\s\S]*?<\/button>/g,
+    ),
+  ].map((m) => m[0]);
+  check(buttons.length === 6, `expected 6 copy buttons, found ${buttons.length}`);
+
+  for (const [i, button] of buttons.entries()) {
+    const tag = button.match(/<button\b(?:"[^"]*"|'[^']*'|[^'">])*>/)?.[0] ?? '';
+    const dataCode = getAttr(tag, 'data-code');
+    const ariaLabel = getAttr(tag, 'aria-label');
+    check(Boolean(dataCode), `copy button ${i}: missing data-code`);
+    check(Boolean(ariaLabel), `copy button ${i}: missing aria-label`);
+    if (dataCode && ariaLabel) {
+      const decodedCode = decodeHtmlEntities(dataCode);
+      const decodedLabel = decodeHtmlEntities(ariaLabel);
+      check(
+        decodedLabel === `Copy ${decodedCode}`,
+        `copy button ${i}: aria-label "${decodedLabel}" does not match "Copy ${decodedCode}"`,
+      );
+    }
+    check(
+      /\bdata-copy-announce\b/.test(button) && /\baria-live\s*=\s*"polite"/.test(button),
+      `copy button ${i}: missing polite data-copy-announce live region`,
+    );
+  }
+
+  const hasSharedController = scripts.some(
+    (s) => s.includes('clipboard.writeText') && s.includes('data-copy-announce'),
+  );
+  const hasInstallWiring = scripts.some((s) => s.includes('.install-widget [data-copy]'));
+  const hasFeatureWiring = scripts.some((s) => s.includes('[data-feature-copy]'));
+  check(hasSharedController, 'no bundled script contains the shared copy-button controller');
+  check(hasInstallWiring, 'no bundled script wires install-widget copy buttons');
+  check(hasFeatureWiring, 'no bundled script wires feature-command copy buttons');
 }
 
 function checkFeatureDemos(html: string): void {
@@ -219,20 +327,10 @@ function checkFeatureDemos(html: string): void {
           decodedCode === expectedCommands[i],
           `feature demo ${i}: command mismatch "${decodedCode}"`,
         );
-        const ariaLabel = getAttr(copyButton, 'aria-label');
-        check(
-          decodeHtmlEntities(ariaLabel ?? '') === `Copy ${decodedCode}`,
-          `feature demo ${i}: copy button aria-label does not expose clipboard payload`,
-        );
+        check(/\bdata-copy\b/.test(copyButton), `feature demo ${i}: copy button missing data-copy`);
       }
     }
   }
-
-  const scripts = [...html.matchAll(/<script\b[^>]*>([\s\S]*?)<\/script>/g)].map((m) => m[1] ?? '');
-  const wired = scripts.some(
-    (s) => s.includes('data-feature-copy') && s.includes('clipboard.writeText'),
-  );
-  check(wired, 'no inlined <script> wires feature command copy buttons');
 }
 
 // Links whose only visible content is an <svg> need an accessible name —
@@ -293,7 +391,7 @@ function extractInstallWidget(html: string): string | undefined {
 // the rendered buttons. Without this last check, a selector or bundling
 // regression would ship silently because nothing exercises the handler
 // at runtime in CI.
-function checkInstallWidget(html: string): void {
+function checkInstallWidget(html: string, scripts: string[]): void {
   const widget = extractInstallWidget(html);
   check(Boolean(widget), 'install-widget fieldset not found in rendered HTML');
   if (!widget) return;
@@ -333,15 +431,9 @@ function checkInstallWidget(html: string): void {
   );
 
   // Match the literal compound selector `.install-widget [data-copy]`,
-  // not the two substrings independently. The previous looser check
-  // (`.install-widget` + `data-copy` anywhere in the same script body)
-  // false-passed when the substrings appeared in unrelated contexts —
-  // e.g. a class rename to `.install` plus an unrelated `data-copy`
-  // attribute elsewhere in the bundle would still satisfy it. The
-  // bundler may collapse spaces around CSS combinators or rewrite the
-  // selector via a single pass, so we accept any whitespace run between
-  // the class and the attribute selector.
-  const scripts = [...html.matchAll(/<script\b[^>]*>([\s\S]*?)<\/script>/g)].map((m) => m[1] ?? '');
+  // not the two substrings independently. This protects the install
+  // widget's selector while `checkCopyButtons` verifies the shared
+  // controller used by every copy button on the page.
   const wired = scripts.some((s) => /\.install-widget\s+\[data-copy\]/.test(s));
   check(
     wired,
@@ -467,30 +559,22 @@ async function checkWranglerConfig(): Promise<void> {
 
 const html = await readDistFile('index.html');
 const notFoundHtml = await readDistFile('404.html');
+const pageScripts = await readPageScripts(html);
 const videoSrcs = extractVideoSrcs(html);
 
 check(videoSrcs.length > 0, 'homepage is missing a video src');
 check(videoSrcs.includes('demo.mp4'), 'homepage is missing the primary demo.mp4 video');
 
 for (const videoSrc of videoSrcs) {
-  check(!videoSrc.startsWith('/'), `video src must be relative, got ${videoSrc}`);
-  check(!/^[a-z][a-z0-9+.-]*:/i.test(videoSrc), `video src must not be absolute, got ${videoSrc}`);
-  check(
-    !videoSrc.split('/').some((segment) => segment === '.' || segment === '..'),
-    `video src must not use dot segments, got ${videoSrc}`,
-  );
-  check(!videoSrc.includes('/'), `video src must be a root-local asset filename, got ${videoSrc}`);
+  checkRootLocalAssetPath('video src', videoSrc);
   await checkNonEmptyFile(videoSrc);
 }
 
-check(
-  [...html.matchAll(/<noscript\b[\s\S]*?<\/noscript>/g)].length === videoSrcs.length,
-  'each demo video needs a no-JS fallback link',
-);
-
-checkInstallWidget(html);
+checkInstallWidget(html, pageScripts);
+checkCopyButtons(html, pageScripts);
 checkVideoElements(html);
-checkDemoVideoController(html);
+checkDemoFallbackLinks(html);
+checkDemoVideoController(pageScripts);
 checkFeatureDemos(html);
 checkIconOnlyLinks(html);
 checkLabelControlWiring(html);
