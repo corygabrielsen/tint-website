@@ -32,12 +32,21 @@ async function checkNonEmptyFile(path: string): Promise<void> {
 // time regressions that would shadow Worker routes or other handled
 // paths (worker/index.ts handles `/tint` in code, so a file at
 // dist/tint would silently take precedence and break the redirect).
+//
+// Only ENOENT counts as success. Any other error (EACCES, EIO, etc.)
+// means the smoke test couldn't determine whether the shadowing file
+// exists — surface it loudly rather than passing on the assumption.
 async function checkAbsent(path: string): Promise<void> {
   try {
     await stat(new URL(path, dist));
     errors.push(`${path} must not exist in dist/ — would shadow a Worker route`);
-  } catch {
-    // ENOENT is the success case.
+  } catch (error) {
+    const code = (error as NodeJS.ErrnoException).code;
+    if (code !== 'ENOENT') {
+      errors.push(
+        `checkAbsent(${path}) failed unexpectedly (${code ?? 'unknown'}): ${(error as Error).message}`,
+      );
+    }
   }
 }
 
