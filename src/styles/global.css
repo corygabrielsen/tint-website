@@ -91,8 +91,8 @@ fieldset {
    3. Utilities
    ========================================================================== */
 
-/* Visually hidden but still announced by screen readers. Used for the install
-   widget's <legend> and the copy button's aria-live status region. */
+/* Visually hidden but still announced by screen readers. Used for the
+   install widget's <legend>. */
 .sr-only {
   position: absolute;
   width: 1px;
@@ -166,149 +166,7 @@ a:hover {
 }
 
 /* =============================================================================
-   5. Install tabs
-   Pure-CSS tabbed code blocks: hidden radio inputs drive the active state via
-   :has() + :nth-of-type. Adding a new tab requires another :nth pair below
-   plus another entry in `installCommands`.
-   ========================================================================== */
-
-.install-tabs {
-  border: 1px solid var(--border);
-  background: var(--code-bg);
-  /* fieldset and flex-item defaults treat min-inline-size as min-content,
-     which lets long install commands stretch the widget past the viewport.
-     Resetting both lets the inner <pre> handle the horizontal scroll. */
-  min-width: 0;
-  min-inline-size: 0;
-}
-
-/* Each link in the chain (panels → panel → pre) needs min-width: 0 so the
-   intrinsic min-content of the unwrapped pre line doesn't propagate up
-   and force the whole widget to grow past the panel. */
-.install-tabs .panels,
-.install-tabs .panel {
-  min-width: 0;
-}
-
-/* Radios are visually hidden via the .sr-only utility on the elements
-   themselves. They remain keyboard-accessible (Tab focuses, arrow keys
-   switch) and the :has()/:nth-of-type rules below still match by type. */
-
-.install-tabs .tabs {
-  display: flex;
-  border-bottom: 1px solid var(--border);
-  font-family: var(--mono);
-  font-size: 0.875rem;
-}
-
-.install-tabs .tabs label {
-  padding: 0.5rem 1rem;
-  cursor: pointer;
-  color: var(--muted);
-  border-right: 1px solid var(--border);
-  user-select: none;
-}
-
-.install-tabs .tabs label:hover {
-  color: var(--fg);
-}
-
-/* Active tab + active panel: positional matching via :nth-of-type means CSS
-   stays generic regardless of tab IDs. Extend with another :nth pair to add
-   a third tab. */
-.install-tabs:has(input:nth-of-type(1):checked) .tabs label:nth-child(1),
-.install-tabs:has(input:nth-of-type(2):checked) .tabs label:nth-child(2) {
-  color: var(--fg);
-  background: var(--bg);
-}
-
-.install-tabs:has(input:nth-of-type(1):focus-visible) .tabs label:nth-child(1),
-.install-tabs:has(input:nth-of-type(2):focus-visible) .tabs label:nth-child(2) {
-  outline: 2px solid var(--fg);
-  outline-offset: -2px;
-}
-
-.install-tabs .panels .panel {
-  position: relative;
-}
-
-/* In :has()-capable browsers (the support floor for the rest of the page)
-   hide all panels and reveal the active one. Browsers without :has() skip
-   the @supports block, so all panels stay visible — degraded but functional
-   instead of a blank widget. */
-@supports selector(:has(*)) {
-  .install-tabs .panels .panel {
-    display: none;
-  }
-
-  .install-tabs:has(input:nth-of-type(1):checked) .panels .panel:nth-child(1),
-  .install-tabs:has(input:nth-of-type(2):checked) .panels .panel:nth-child(2) {
-    display: block;
-  }
-}
-
-.install-tabs .panel pre {
-  border: 0;
-  /* Right padding clears the copy button (button right-edge sits at
-     0.5rem + 1.75rem = 2.25rem from the panel edge); 2.5rem leaves a
-     small gap so command text never renders underneath the icon. */
-  padding: 0.75rem 2.5rem 0.75rem 1rem;
-  margin: 0;
-  font-family: var(--mono);
-  font-size: 0.875rem;
-  overflow-x: auto;
-}
-
-.install-tabs .panel pre code {
-  font-family: inherit;
-}
-
-/* Copy button — positioned over the top-right of each panel. */
-.install-tabs .copy {
-  position: absolute;
-  top: 0.4rem;
-  right: 0.5rem;
-  width: 1.75rem;
-  height: 1.75rem;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  background: transparent;
-  border: 0;
-  color: var(--muted);
-  cursor: pointer;
-  transition:
-    color 0.15s,
-    background 0.15s;
-}
-
-.install-tabs .copy:hover {
-  color: var(--fg);
-  background: var(--border);
-}
-
-.install-tabs .copy:focus-visible {
-  outline: 2px solid var(--fg);
-  outline-offset: 2px;
-}
-
-/* Default: copy icon visible, check hidden. JS adds .copied for 1.2s on
-   successful clipboard write to flip them. */
-.install-tabs .copy .icon-check {
-  display: none;
-}
-
-.install-tabs .copy.copied .icon-copy {
-  display: none;
-}
-
-.install-tabs .copy.copied .icon-check {
-  display: block;
-  color: var(--fg);
-}
-
-/* =============================================================================
-   6. Demo
+   5. Demo
    ========================================================================== */
 
 .demo {
@@ -327,7 +185,7 @@ a:hover {
 }
 
 /* =============================================================================
-   7. GitHub link
+   6. GitHub link
    ========================================================================== */
 
 .github-link {
@@ -345,7 +203,7 @@ a:hover {
 }
 
 /* =============================================================================
-   8. Copyright
+   7. Copyright
    color-mix at 25% fg / 75% bg fades the line so it sits below the GitHub
    link's visual weight without disappearing.
    ========================================================================== */
