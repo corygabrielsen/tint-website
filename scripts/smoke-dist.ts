@@ -308,13 +308,10 @@ if (videoSrc) {
   check(!videoSrc.startsWith('/'), `video src must be relative, got ${videoSrc}`);
   check(!/^[a-z][a-z0-9+.-]*:/i.test(videoSrc), `video src must not be absolute, got ${videoSrc}`);
 
-  const projectPagesUrl = new URL(videoSrc, 'https://corygabrielsen.github.io/tint-website/');
+  // Pin the canonical filename. Combined with the relative-src checks
+  // above, this guarantees the homepage video is served from /demo.mp4
+  // on tint.sh — the path the asset binding actually serves.
   const customDomainUrl = new URL(videoSrc, 'https://tint.sh/');
-
-  check(
-    projectPagesUrl.pathname === '/tint-website/demo.mp4',
-    `video src resolves incorrectly on project Pages: ${projectPagesUrl.href}`,
-  );
   check(
     customDomainUrl.pathname === '/demo.mp4',
     `video src resolves incorrectly on tint.sh: ${customDomainUrl.href}`,
