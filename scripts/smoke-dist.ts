@@ -311,15 +311,18 @@ function checkPlausibleSnippet(html: string, sourcePath: string): void {
 // that nothing else in the pipeline detects the loss of. See call
 // site comment for the rationale.
 //
-// We deliberately don't JSON-parse the file. Wrangler accepts
-// JSONC (line + block comments AND trailing commas), and writing
-// a strict-enough parser to handle every relaxation without false
-// rejections — particularly trailing commas — needs either a real
-// JSONC parser dep or fragile regex. Since we only need to verify
-// two specific entries are present and unchanged, raw-text regex
-// on the literal lines is both simpler and immune to JSONC
-// formatting variations (trailing commas, multiline values,
-// adjacent comments, etc.).
+// Approach: strip JSONC comments first, then regex on the
+// uncommented text. We don't JSON.parse afterwards because
+// wrangler also accepts trailing commas, and writing a parser
+// permissive enough to handle every JSONC relaxation without
+// false rejections (particularly trailing commas) needs either a
+// real JSONC parser dep or fragile regex. Stripping comments
+// before regex matching is sufficient because:
+//   - It prevents `// "preview_urls": true` from false-passing
+//     (raw-text regex without comment stripping would match the
+//     literal text inside a comment, defeating the gate).
+//   - It tolerates trailing commas and other JSONC relaxations
+//     that don't affect entry presence (we never parse).
 async function checkWranglerConfig(): Promise<void> {
   let raw = '';
   try {
@@ -329,11 +332,19 @@ async function checkWranglerConfig(): Promise<void> {
     return;
   }
 
+  // Strip block comments first, then line comments. The line-
+  // comment regex preserves `://` and similar so URL strings
+  // don't get mangled (none today, but the Worker config could
+  // grow a `route` entry).
+  const uncommented = raw
+    .replace(/\/\*[\s\S]*?\*\//g, '')
+    .replace(/(^|[^:])\/\/.*$/gm, (_, lead) => lead);
+
   // build.command must reference the canonical script. The chain
-  // lives in package.json `check`; this assertion verifies wrangler
-  // calls into it rather than re-spelling it.
+  // lives in package.json `check`; this assertion verifies
+  // wrangler calls into it rather than re-spelling it.
   check(
-    /"command"\s*:\s*"npm run check"/.test(raw),
+    /"command"\s*:\s*"npm run check"/.test(uncommented),
     'wrangler.jsonc: build.command must be exactly "npm run check" — keeps the deploy gate in sync with .github/workflows/ci.yml via package.json',
   );
 
@@ -341,7 +352,7 @@ async function checkWranglerConfig(): Promise<void> {
   // serve the deployed Worker version. If removed, the next deploy
   // silently disables previews; nothing else in the pipeline notices.
   check(
-    /"preview_urls"\s*:\s*true/.test(raw),
+    /"preview_urls"\s*:\s*true/.test(uncommented),
     'wrangler.jsonc: "preview_urls": true must be present — without it, preview hostnames return Cloudflare\'s "preview disabled" page after deploy',
   );
 }

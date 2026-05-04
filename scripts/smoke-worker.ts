@@ -94,135 +94,165 @@ async function call(method: string, url: string): Promise<Response> {
   return workerModule.fetch(new Request(url, { method }), env, ctx);
 }
 
-// Canonical-host /tint: GET returns 302 to the GitHub release URL,
-// fires the Plausible event via waitUntil, and skips ASSETS entirely.
-{
-  const response = await call('GET', 'https://tint.sh/tint');
-  check(response.status === 302, `GET tint.sh/tint: status ${response.status}, want 302`);
-  check(
-    response.headers.get('location') ===
-      'https://github.com/corygabrielsen/tint/releases/latest/download/tint',
-    `GET tint.sh/tint: location header ${response.headers.get('location')}`,
-  );
-  check(
-    assetCalls.length === 0,
-    `GET tint.sh/tint: should not invoke ASSETS, did ${assetCalls.length}x`,
-  );
-  check(
-    waitUntilCalls.length === 1,
-    `GET tint.sh/tint: should fire one waitUntil (trackDownload), fired ${waitUntilCalls.length}`,
-  );
-  // Drain the waitUntil so the mocked fetch records the Plausible POST.
-  await Promise.all(waitUntilCalls);
+const RELEASE_URL = 'https://github.com/corygabrielsen/tint/releases/latest/download/tint';
 
-  // Plausible's /api/event contract has multiple required parts;
-  // each is asserted separately so a partial regression names the
-  // exact field that broke.
+// Full canonical-/tint contract. Every canonical-host /tint
+// variant (different path, different method, with-or-without
+// query string) must satisfy ALL of these — extracted into a
+// single helper so future variants can't accidentally assert only
+// part of the contract (which is exactly the regression class
+// that flagged this in review).
+//
+// On GET: redirect target must be the bare RELEASE_URL, ASSETS
+// must not be touched, trackDownload must fire exactly once, and
+// the outbound fetch must be a well-formed Plausible POST.
+//
+// On HEAD: same redirect (HTTP semantics) but trackDownload must
+// NOT fire (HEAD doesn't represent a download — link checkers,
+// social preview crawlers, monitoring probes all use HEAD).
+//
+// `expectQueryDropped` lets variants opt into the additional
+// "query string was dropped from Location" assertion. The worker
+// strips the query when constructing the redirect target;
+// passing through `?utm_source=…` would split utm-tracking from
+// the Plausible event domain.
+async function assertCanonicalTintContract(
+  method: 'GET' | 'HEAD',
+  url: string,
+  expectQueryDropped = false,
+): Promise<void> {
+  const label = `${method} ${url}`;
+  const response = await call(method, url);
+  check(response.status === 302, `${label}: status ${response.status}, want 302`);
   check(
-    fetchCalls.length === 1,
-    `GET tint.sh/tint: trackDownload should fire exactly one outbound fetch, got ${fetchCalls.length}`,
+    response.headers.get('location') === RELEASE_URL,
+    `${label}: location header should be ${RELEASE_URL}, got ${response.headers.get('location')}${
+      expectQueryDropped ? ' (query string must be dropped from Location)' : ''
+    }`,
   );
-  const plausibleCall = fetchCalls[0];
-  if (plausibleCall) {
+  check(assetCalls.length === 0, `${label}: should not invoke ASSETS, did ${assetCalls.length}x`);
+  if (method === 'GET') {
     check(
-      plausibleCall.method === 'POST',
-      `trackDownload: method must be POST (Plausible /api/event requires POST), got ${plausibleCall.method}`,
+      waitUntilCalls.length === 1,
+      `${label}: should fire exactly one waitUntil (trackDownload), fired ${waitUntilCalls.length}`,
     );
+    await Promise.all(waitUntilCalls);
     check(
-      plausibleCall.url === 'https://plausible.io/api/event',
-      `trackDownload: URL must be https://plausible.io/api/event, got ${plausibleCall.url}`,
+      fetchCalls.length === 1,
+      `${label}: trackDownload should fire exactly one outbound fetch, got ${fetchCalls.length}`,
     );
-    check(
-      plausibleCall.contentType === 'application/json',
-      `trackDownload: Content-Type must be application/json, got ${JSON.stringify(plausibleCall.contentType)}`,
-    );
-    let payload: { name?: string; url?: string; domain?: string; props?: Record<string, unknown> } =
-      {};
-    try {
-      payload = JSON.parse(plausibleCall.body);
-    } catch (error) {
-      check(false, `trackDownload: body must be valid JSON: ${(error as Error).message}`);
+    const plausibleCall = fetchCalls[0];
+    if (plausibleCall) {
+      check(
+        plausibleCall.method === 'POST',
+        `${label} → trackDownload: method must be POST (Plausible /api/event requires POST), got ${plausibleCall.method}`,
+      );
+      check(
+        plausibleCall.url === 'https://plausible.io/api/event',
+        `${label} → trackDownload: URL must be https://plausible.io/api/event, got ${plausibleCall.url}`,
+      );
+      check(
+        plausibleCall.contentType === 'application/json',
+        `${label} → trackDownload: Content-Type must be application/json, got ${JSON.stringify(plausibleCall.contentType)}`,
+      );
+      let payload: {
+        name?: string;
+        url?: string;
+        domain?: string;
+        props?: Record<string, unknown>;
+      } = {};
+      try {
+        payload = JSON.parse(plausibleCall.body);
+      } catch (error) {
+        check(
+          false,
+          `${label} → trackDownload: body must be valid JSON: ${(error as Error).message}`,
+        );
+      }
+      check(
+        payload.name === 'tint_download',
+        `${label} → trackDownload: payload.name must be 'tint_download', got ${JSON.stringify(payload.name)}`,
+      );
+      check(
+        payload.url === 'https://tint.sh/tint',
+        `${label} → trackDownload: payload.url must be 'https://tint.sh/tint', got ${JSON.stringify(payload.url)}`,
+      );
+      check(
+        payload.domain === 'tint.sh',
+        `${label} → trackDownload: payload.domain must be 'tint.sh', got ${JSON.stringify(payload.domain)}`,
+      );
+      check(
+        typeof payload.props === 'object' && payload.props !== null && 'country' in payload.props,
+        `${label} → trackDownload: payload.props.country must be present, got ${JSON.stringify(payload.props)}`,
+      );
     }
+  } else {
     check(
-      payload.name === 'tint_download',
-      `trackDownload: payload.name must be 'tint_download' (event name visible in Plausible dashboard), got ${JSON.stringify(payload.name)}`,
+      waitUntilCalls.length === 0,
+      `${label}: HEAD must NOT fire trackDownload, fired ${waitUntilCalls.length}`,
     );
     check(
-      payload.url === 'https://tint.sh/tint',
-      `trackDownload: payload.url must be 'https://tint.sh/tint' (the canonical-host URL where the event happened), got ${JSON.stringify(payload.url)}`,
-    );
-    check(
-      payload.domain === 'tint.sh',
-      `trackDownload: payload.domain must be 'tint.sh' (the Plausible dashboard identifier), got ${JSON.stringify(payload.domain)}`,
-    );
-    check(
-      typeof payload.props === 'object' && payload.props !== null && 'country' in payload.props,
-      `trackDownload: payload.props.country must be present (Plausible's country breakdown depends on it), got ${JSON.stringify(payload.props)}`,
+      fetchCalls.length === 0,
+      `${label}: HEAD must NOT POST to Plausible, posted ${fetchCalls.length}x`,
     );
   }
 }
 
-// Canonical-host /tint with trailing slash: same redirect, forgive copy-paste.
-{
-  const response = await call('GET', 'https://tint.sh/tint/');
-  check(response.status === 302, `GET tint.sh/tint/: status ${response.status}, want 302`);
-}
-
-// Canonical-host HEAD /tint: redirect must still fire (HTTP semantics)
-// but no Plausible event — HEAD doesn't represent a download.
-{
-  const response = await call('HEAD', 'https://tint.sh/tint');
-  check(response.status === 302, `HEAD tint.sh/tint: status ${response.status}, want 302`);
-  check(
-    waitUntilCalls.length === 0,
-    `HEAD tint.sh/tint: should NOT fire trackDownload, fired ${waitUntilCalls.length}`,
-  );
-}
-
-// Preview-host /tint and /tint/: must NOT redirect to GitHub. Both
-// variants fall through to ASSETS, which 404s. The worker
-// special-cases BOTH /tint and /tint/ on the canonical side; the
-// preview gate must apply equally to both, otherwise a regression
-// that keeps the gate on /tint but forgets /tint/ would still
-// re-expose preview traffic to GitHub's download counter via the
-// trailing-slash variant.
-for (const path of ['/tint', '/tint/']) {
-  const url = `https://feat-foo-tint-website.example.workers.dev${path}`;
-  const response = await call('GET', url);
+// Full preview-/tint contract. Preview hostnames must never
+// redirect from /tint — the request falls through to ASSETS
+// (which 404s, since no static /tint file exists; smoke-dist's
+// `checkAbsent('tint')` enforces that). No Plausible event must
+// fire, because the canonical-host gate applies symmetrically
+// (preview hosts don't match `hostname === 'tint.sh'`).
+async function assertPreviewTintContract(method: 'GET' | 'HEAD', url: string): Promise<void> {
+  const label = `${method} ${url}`;
+  const response = await call(method, url);
   check(
     response.status === 404,
-    `GET preview${path}: status ${response.status}, want 404 (preview hosts must not redirect)`,
+    `${label}: status ${response.status}, want 404 (preview hosts must not redirect)`,
   );
   check(
     response.headers.get('location') === null,
-    `GET preview${path}: must not have location header, got ${response.headers.get('location')}`,
+    `${label}: must not have a Location header, got ${response.headers.get('location')}`,
   );
   check(
     waitUntilCalls.length === 0,
-    `GET preview${path}: must not fire trackDownload, fired ${waitUntilCalls.length}`,
+    `${label}: must not fire trackDownload, fired ${waitUntilCalls.length}`,
   );
   check(
     fetchCalls.length === 0,
-    `GET preview${path}: must not POST to Plausible, posted ${fetchCalls.length}x`,
+    `${label}: must not POST to Plausible, posted ${fetchCalls.length}x`,
   );
 }
 
-// Query strings on canonical /tint are silently accepted (no 404)
-// and dropped (Location is the bare RELEASE_URL, not RELEASE_URL +
-// query). Documented as a contract in worker/index.ts because
-// social-share / utm tracking parameters would otherwise 404.
-{
-  const response = await call('GET', 'https://tint.sh/tint?utm_source=share&ref=foo');
-  check(
-    response.status === 302,
-    `GET tint.sh/tint?...: status ${response.status}, want 302 (query strings must not 404)`,
-  );
-  check(
-    response.headers.get('location') ===
-      'https://github.com/corygabrielsen/tint/releases/latest/download/tint',
-    `GET tint.sh/tint?...: query must be dropped from Location, got ${response.headers.get('location')}`,
-  );
-}
+// Every canonical-/tint variant runs the full contract assertion.
+// Adding a new variant (new method, new path shape, new query
+// pattern) is a one-liner — and gets full coverage automatically.
+await assertCanonicalTintContract('GET', 'https://tint.sh/tint');
+await assertCanonicalTintContract('GET', 'https://tint.sh/tint/');
+await assertCanonicalTintContract('HEAD', 'https://tint.sh/tint');
+await assertCanonicalTintContract('HEAD', 'https://tint.sh/tint/');
+// Query strings are accepted (no 404) and dropped (Location is
+// the bare RELEASE_URL). Documented as a contract in
+// worker/index.ts because social-share / utm-tracking parameters
+// would otherwise 404 on real-world inbound links.
+await assertCanonicalTintContract(
+  'GET',
+  'https://tint.sh/tint?utm_source=share&ref=foo',
+  /* expectQueryDropped */ true,
+);
+
+// Every preview-/tint variant runs the full preview contract. The
+// canonical side handles BOTH /tint and /tint/, so the preview
+// gate must apply equally to both — otherwise a regression that
+// keeps the gate on /tint but forgets /tint/ would re-expose
+// preview traffic to GitHub's download counter via the
+// trailing-slash variant.
+const previewBase = 'https://feat-foo-tint-website.example.workers.dev';
+await assertPreviewTintContract('GET', `${previewBase}/tint`);
+await assertPreviewTintContract('GET', `${previewBase}/tint/`);
+await assertPreviewTintContract('HEAD', `${previewBase}/tint`);
+await assertPreviewTintContract('HEAD', `${previewBase}/tint/`);
 
 // Preview-host asset: returns ASSETS response with X-Robots-Tag
 // noindex header appended. Copilot flagged this in round 4 — without
