@@ -148,13 +148,14 @@ const stripTabindex: ShikiTransformer = {
   .install-widget {
     border: 1px solid var(--border);
     background: var(--code-bg);
-    /* 60rem (15/16 of main's 64rem cap) keeps the install widget
-       narrower than the demo media at the page max width, expressing
-       the "media wider than form controls" hierarchy. At narrower
-       viewports the cap doesn't engage and the install widget fills
-       main edge-to-edge with the media, since there's no horizontal
-       room to express a hierarchy. */
-    max-width: 60rem;
+    /* <fieldset> shrinks to fit its content by default, so we explicitly
+       fill the parent column up to a 60rem cap. 60rem is 15/16 of main's
+       64rem cap, leaving a clean 2rem (Tailwind px-8) buffer on each
+       side at the page max width and expressing the "media wider than
+       form controls" hierarchy. At narrower viewports the cap doesn't
+       engage and the install widget fills main edge-to-edge with the
+       demo media. */
+    width: min(60rem, 100%);
     margin-inline: auto;
     /* fieldset and flex-item defaults treat min-inline-size as min-content,
        which lets long install commands stretch the widget past the
