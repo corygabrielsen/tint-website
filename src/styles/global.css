@@ -91,8 +91,11 @@ fieldset {
    3. Utilities
    ========================================================================== */
 
-/* Visually hidden but still announced by screen readers. Used for the
-   install widget's <legend>. */
+/* Visually hidden but still announced by screen readers. Used inside the
+   install widget for: the <legend> ("Install method"), the radio inputs
+   that drive tab selection (we render visual <label>s instead), and the
+   <span aria-live="polite"> that announces "Copied" / "Copy failed" when
+   a command is copied. */
 .sr-only {
   position: absolute;
   width: 1px;

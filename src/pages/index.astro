@@ -10,13 +10,18 @@ const repoUrl = 'https://github.com/corygabrielsen/tint';
 // tap on first install, so no `brew tap` step is needed. The curl one-liner
 // is long enough to wrap inside the install widget's panel; that's expected
 // — see the wrap rationale on InstallWidget.astro.
+//
+// `as const` narrows this to a 2-tuple so it satisfies InstallWidget's
+// `readonly [Command, Command]` prop. Adding a third install method here
+// without first extending the widget's :nth-of-type CSS would now be a
+// compile error rather than a silently broken tab.
 const installCommands = [
   { label: 'brew', code: 'brew install corygabrielsen/tint/tint' },
   {
     label: 'curl',
     code: `curl -fsSL ${repoUrl}/releases/latest/download/tint -o ~/.local/bin/tint && chmod +x ~/.local/bin/tint`,
   },
-];
+] as const;
 
 // Hue-sorted colors from public/favicon.svg.
 const themeColors = [

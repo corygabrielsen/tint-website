@@ -35,20 +35,30 @@
 //   2. `stripTabindex` deletes the shiki-default `tabindex="0"` from the
 //      wrapper element; transformers run after Astro's pre→code rename, so
 //      the hook receives the renamed node and we mutate it in place.
+import { randomUUID } from 'node:crypto';
 import { Code } from 'astro:components';
 import type { ShikiTransformer } from 'shiki';
 
 interface Command {
-  label: string;
-  code: string;
+  readonly label: string;
+  readonly code: string;
 }
 
 interface Props {
-  commands: readonly Command[];
+  // Tuple of exactly two: the tab-selection CSS uses :nth-of-type(1) and
+  // :nth-of-type(2) selectors (see the .install-widget:has(...) blocks
+  // below). A third tab would need matching :nth-of-type(3) rules, so we
+  // pin the type rather than silently render a broken third tab.
+  commands: readonly [Command, Command];
+  // Unique id for this widget instance. Defaults to a per-render UUID so
+  // two widgets on the same page don't collide on the radio name and the
+  // `${id}-${cmd.label}` ids that wire labels to inputs. Override only
+  // when you need to target the fieldset from outside (tests, anchor
+  // links, etc.).
   id?: string;
 }
 
-const { commands, id = 'install-widget' } = Astro.props;
+const { commands, id = `install-widget-${randomUUID()}` } = Astro.props;
 
 const stripTabindex: ShikiTransformer = {
   pre(node) {
