@@ -293,18 +293,14 @@ a:hover {
 }
 
 /* =============================================================================
-   6. Demo placeholder
+   6. Demo
    ========================================================================== */
 
-.demo-placeholder {
-  aspect-ratio: 16 / 9;
-  border: 1px dashed var(--border);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  color: var(--muted);
-  font-size: 0.875rem;
-  font-family: var(--mono);
+.demo {
+  display: block;
+  width: 100%;
+  height: auto;
+  border: 1px solid var(--border);
 }
 
 /* =============================================================================
