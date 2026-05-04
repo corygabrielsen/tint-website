@@ -24,7 +24,7 @@ Each PR gets its own stable preview URL of the shape `<alias>-tint-website.<subd
 ## Architecture (30 seconds)
 
 - **Host.** Cloudflare Worker (`worker/index.ts` + `wrangler.jsonc`). Static assets in `dist/` are served via the Workers Static Assets binding.
-- **`/tint` short URL.** 302 to the GitHub release asset. Preserves GitHub's per-asset `download_count` via the second-hop redirect.
-- **Analytics.** Plausible. Client snippet in `src/layouts/Layout.astro`; server-side `tint_download` events from the Worker. Both gated to `hostname === 'tint.sh'`.
+- **`/tint` short URL.** On `tint.sh`, 302 to the GitHub release asset (preserves GitHub's per-asset `download_count` via the second-hop redirect). On preview hostnames, 404 — see per-surface gates below.
+- **Per-surface gates.** Behaviors with externally-observable side effects on `tint.sh` are conditioned on `hostname === 'tint.sh'`: the Plausible client snippet, the server `tint_download` event, the `/tint` redirect, and the absence of `X-Robots-Tag: noindex`. Previews don't trigger any of them, so they can't pollute analytics, inflate `download_count`, or appear in search-engine results.
 
 For the full invariant catalog see [`docs/architecture.md`](docs/architecture.md). For agent-specific guidance see [`AGENTS.md`](AGENTS.md). For commit and branch conventions see [`CONTRIBUTING.md`](CONTRIBUTING.md).
