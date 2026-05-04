@@ -3,15 +3,16 @@ import '~/styles/global.css';
 
 interface Props {
   title: string;
-  description?: string;
+  // Required, no default. The previous `'Terminal theme switcher.'` default
+  // was the homepage tagline and silently shipped into the 404 page's
+  // <meta name="description">, which leaks into search results and social
+  // previews. Forcing each page to provide its own description prevents
+  // that drift.
+  description: string;
   favicon?: string;
 }
 
-const {
-  title,
-  description = 'Terminal theme switcher.',
-  favicon = '/favicon.svg',
-} = Astro.props;
+const { title, description, favicon = '/favicon.svg' } = Astro.props;
 ---
 
 <!doctype html>
