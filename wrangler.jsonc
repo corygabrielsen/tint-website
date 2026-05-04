@@ -20,6 +20,6 @@
   // checks independently in .github/workflows/ci.yml for fast PR
   // feedback.
   "build": {
-    "command": "npm run typecheck && npm run lint && npm run build && npm run smoke"
+    "command": "npm run check"
   }
 }

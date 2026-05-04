@@ -21,6 +21,24 @@
 //   *                    env.ASSETS.fetch — the Astro build in dist/.
 
 const RELEASE_URL = 'https://github.com/corygabrielsen/tint/releases/latest/download/tint';
+
+// CANONICAL_HOST and PLAUSIBLE_DOMAIN are deliberately separate
+// constants even though both equal 'tint.sh' today. They name two
+// different concerns:
+//   - CANONICAL_HOST: hostname routing — which incoming hostname
+//     counts as the production surface. Controls the /tint
+//     redirect, X-Robots-Tag injection, and the server-side
+//     Plausible event gate. Changing this changes *behavior*.
+//   - PLAUSIBLE_DOMAIN: the dashboard identifier registered with
+//     Plausible. Sent in the event payload's `domain` field;
+//     Plausible uses it to attribute events to the right
+//     dashboard. Changing this changes *attribution*.
+// They could legitimately diverge (e.g., if Plausible were
+// reconfigured under a different dashboard name without changing
+// what host we serve). Conflating them under a single name
+// invites a future refactor to accidentally change one when
+// editing the other.
+const CANONICAL_HOST = 'tint.sh';
 const PLAUSIBLE_DOMAIN = 'tint.sh';
 const PLAUSIBLE_EVENT_URL = 'https://plausible.io/api/event';
 
@@ -76,7 +94,7 @@ export default {
     }
 
     const url = new URL(request.url);
-    const isCanonical = url.hostname === PLAUSIBLE_DOMAIN;
+    const isCanonical = url.hostname === CANONICAL_HOST;
 
     // /tint short URL → 302 to the GitHub release asset, canonical
     // host only. Preview hostnames fall through to the asset binding,

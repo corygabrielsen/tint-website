@@ -279,50 +279,48 @@ function checkInstallWidget(html: string): void {
 //
 // Run per-page (not once per build) because the failure mode is
 // "404.html lost the snippet during a layout refactor".
-// Static check on worker/index.ts: the per-surface gates that protect
-// production-only side effects from firing on preview hostnames must
-// be present. Two gates today, with a stable shape:
-//
-//   1. /tint → GitHub redirect is gated on the canonical hostname.
-//      The redirect call (Response.redirect(RELEASE_URL, …)) must
-//      live inside a control-flow block that requires
-//      url.hostname === PLAUSIBLE_DOMAIN. Verified loosely by
-//      requiring the hostname check to appear in the source before
-//      any Response.redirect(RELEASE_URL …) call.
-//   2. Non-canonical responses carry X-Robots-Tag: noindex.
-//      Verified by requiring the literal header name and the
-//      noindex token to appear together.
-//
-// Both checks are deliberately loose substring/order checks rather
-// than AST analysis: a stricter parser would overfit the current
-// shape of the file. The failure messages are explicit so a human
-// can quickly see what's missing.
-async function checkWorkerHostnameGates(): Promise<void> {
-  let workerSrc = '';
+// Static check on wrangler.jsonc: the two load-bearing entries that
+// nothing else in the pipeline detects the loss of. See call site
+// comment for the rationale.
+async function checkWranglerConfig(): Promise<void> {
+  let raw = '';
   try {
-    workerSrc = await readFile(new URL('../worker/index.ts', import.meta.url), 'utf8');
+    raw = await readFile(new URL('../wrangler.jsonc', import.meta.url), 'utf8');
   } catch (error) {
-    errors.push(describeFsFailure('read', 'worker/index.ts', error));
+    errors.push(describeFsFailure('read', 'wrangler.jsonc', error));
     return;
   }
 
-  // Gate 1: hostname check must precede the redirect call in source
-  // order. Using `[\s\S]*?` (non-greedy) so the check is positional,
-  // not just "both substrings exist somewhere."
-  const tintRedirectGated =
-    /url\.hostname\s*===\s*PLAUSIBLE_DOMAIN[\s\S]*?Response\.redirect\(\s*RELEASE_URL/.test(
-      workerSrc,
+  // Strip line and block comments before JSON parsing. Wrangler's
+  // jsonc parser is lenient; ours needs to be just lenient enough.
+  const stripped = raw
+    .replace(/\/\*[\s\S]*?\*\//g, '')
+    .replace(/(^|[^:])\/\/.*$/gm, (_, lead) => lead);
+
+  let config: { build?: { command?: string }; preview_urls?: boolean };
+  try {
+    config = JSON.parse(stripped);
+  } catch (error) {
+    errors.push(
+      `wrangler.jsonc: failed to parse after comment-stripping: ${(error as Error).message}`,
     );
+    return;
+  }
+
+  // build.command must reference the canonical script. The chain
+  // lives in package.json `check`; this assertion verifies wrangler
+  // calls into it rather than re-spelling it.
   check(
-    tintRedirectGated,
-    'worker/index.ts: /tint redirect must be gated on `url.hostname === PLAUSIBLE_DOMAIN` — without the gate, preview hosts inflate GitHub `download_count` above the matching `tint_download` event',
+    config.build?.command === 'npm run check',
+    `wrangler.jsonc: build.command must be exactly "npm run check" (was: ${JSON.stringify(config.build?.command)}) — keeps the deploy gate in sync with .github/workflows/ci.yml via package.json`,
   );
 
-  // Gate 2: X-Robots-Tag: noindex on non-canonical responses.
-  const robotsHeaderSet = /['"]X-Robots-Tag['"][\s\S]{0,80}?noindex/i.test(workerSrc);
+  // preview_urls must be true so per-PR preview hostnames actually
+  // serve the deployed Worker version. If removed, the next deploy
+  // silently disables previews; nothing else in the pipeline notices.
   check(
-    robotsHeaderSet,
-    'worker/index.ts: missing `X-Robots-Tag: noindex` injection for non-canonical hosts — preview hosts could be indexed by search engines as duplicate content of tint.sh',
+    config.preview_urls === true,
+    `wrangler.jsonc: preview_urls must be true (was: ${JSON.stringify(config.preview_urls)}) — without it, preview hostnames return Cloudflare's "preview disabled" page after deploy`,
   );
 }
 
@@ -394,18 +392,32 @@ await checkNonEmptyFile('sitemap-index.xml');
 // future `/foo` route the Worker grows.
 await checkAbsent('tint');
 
-// Worker hostname-gate guards. The Worker runs identical code on
-// tint.sh and on per-PR `*.workers.dev` preview hosts; behaviors
-// with externally-observable side effects on tint.sh must therefore
-// be conditioned on `url.hostname === PLAUSIBLE_DOMAIN`. Removing
-// either gate would let preview deployments inflate the GitHub
-// release `download_count` (via `/tint`) or contribute duplicate-
-// content SEO pollution (via Google indexing the preview HTML).
-//
-// These are static checks on worker/index.ts (smoke-dist runs
-// against dist/, not a live Worker). The patterns are loose enough
-// to survive minor refactors but tight enough to catch removal.
-await checkWorkerHostnameGates();
+// Worker hostname-gate guards (the per-surface invariants that
+// protect production-only side effects from firing on preview
+// hostnames) are validated by behavior testing in
+// scripts/smoke-worker.ts — `npm run smoke` runs that file
+// immediately after this one. Static-source checks for these gates
+// were tried and rejected: any regex tight enough to actually catch
+// the "guard exists but doesn't gate" refactor was either fragile
+// or required a real parser. Behavior tests have neither problem.
+
+// Wrangler config invariants. wrangler.jsonc holds two pieces of
+// load-bearing config that nothing else in the pipeline can detect
+// the loss of:
+//   - build.command runs the CI gate before any wrangler deploy /
+//     versions upload. If it's emptied or changed away from the
+//     canonical script, deploys race to production without the
+//     gate. The chain itself lives behind `npm run check` so that
+//     wrangler.jsonc and .github/workflows/ci.yml share one source
+//     of truth — verifying the *reference* here is sufficient
+//     because the chain definition is in package.json (covered by
+//     standard JSON schema enforcement).
+//   - preview_urls: true is what makes per-PR preview hostnames
+//     actually serve the deployed Worker version. If it's removed,
+//     every preview URL starts returning Cloudflare's "preview
+//     disabled" page. Nothing else in the build or smoke pipeline
+//     would notice; the deploy still succeeds.
+await checkWranglerConfig();
 
 // Dead-artifact guard. `CNAME` is GitHub-Pages-specific machinery
 // (tells Pages which custom domain to serve at). This site deploys to
