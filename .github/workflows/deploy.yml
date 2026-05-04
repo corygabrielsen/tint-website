@@ -1,19 +1,29 @@
-name: Deploy to GitHub Pages
+name: Deploy to Cloudflare Workers
 
 on:
   push:
     branches: [master]
   workflow_dispatch:
 
+# Serialize deploys: a second push during an in-flight deploy waits its
+# turn rather than racing it. cancel-in-progress is intentionally false
+# — Cloudflare's Workers deploy is fast enough that letting an older
+# version finish is preferable to leaving the runtime in an undefined
+# state mid-upload.
 concurrency:
-  group: pages
+  group: deploy-cloudflare
   cancel-in-progress: false
 
+permissions:
+  contents: read
+
 jobs:
-  build:
+  deploy:
+    name: Build and deploy
     runs-on: ubuntu-latest
-    permissions:
-      contents: read
+    environment:
+      name: production
+      url: https://tint.sh
     steps:
       - uses: actions/checkout@v6
 
@@ -24,21 +34,30 @@ jobs:
 
       - run: npm ci
 
-      - run: npm run build
+      # Re-run the full CI suite before deploying. The PR CI already ran
+      # these on merge, but direct pushes to master and workflow_dispatch
+      # invocations bypass that gate; duplicating the checks here is a
+      # small price for "the deployed bytes always passed CI".
+      - name: Biome check
+        run: npx biome check
 
-      - uses: actions/upload-pages-artifact@v5
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Build
+        run: npm run build
+
+      - name: Smoke test
+        run: npm run smoke
+
+      # cloudflare/wrangler-action runs `wrangler deploy` by default,
+      # which uploads the Worker entrypoint (worker/index.ts) plus the
+      # static assets directory (./dist) and promotes the new version
+      # to production atomically. Secrets are repository-scoped (Settings
+      # → Secrets and variables → Actions); the API token needs the
+      # Workers Scripts:Edit permission only.
+      - name: Deploy to Cloudflare
+        uses: cloudflare/wrangler-action@v3
         with:
-          path: ./dist
-
-  deploy:
-    needs: build
-    runs-on: ubuntu-latest
-    permissions:
-      pages: write
-      id-token: write
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
-    steps:
-      - id: deployment
-        uses: actions/deploy-pages@v5
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}

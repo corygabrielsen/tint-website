@@ -23,6 +23,18 @@ const { title, description, favicon = '/favicon.svg' } = Astro.props;
     <meta name="description" content={description} />
     <link rel="icon" type="image/svg+xml" href={favicon} />
     <title>{title}</title>
+    {/* Plausible Analytics: privacy-friendly RUM. The script bundle URL
+        is keyed to the tint.sh site (not a user secret); domain
+        identification is baked into pa-2GDvlSNQ-zZ5v8bZRNwrQ.js. is:inline
+        keeps Astro from bundling/transforming the snippet so it lands in
+        <head> verbatim, matching what plausible.io provides. The Worker
+        also fires server-side `tint_download` events on /tint hits — see
+        worker/index.ts. */}
+    <script is:inline async src="https://plausible.io/js/pa-2GDvlSNQ-zZ5v8bZRNwrQ.js"></script>
+    <script is:inline>
+      window.plausible=window.plausible||function(){(plausible.q=plausible.q||[]).push(arguments)},plausible.init=plausible.init||function(i){plausible.o=i||{}};
+      plausible.init()
+    </script>
   </head>
   <body>
     <slot />

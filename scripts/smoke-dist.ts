@@ -193,12 +193,41 @@ function checkInstallWidget(html: string): void {
     }
   }
 
+  // The curl install command must reference https://tint.sh/tint — the
+  // short URL the Cloudflare Worker (worker/index.ts) handles by 302-ing
+  // to the GitHub release asset. Reverting to the raw github.com URL
+  // would (a) regress the displayed command back to ~80 chars of wrap-
+  // worthy text, and (b) bypass the Worker's `tint_download` Plausible
+  // event because traffic would never hit tint.sh for that path.
+  const installUrls = buttons.map((tag) => decodeHtmlEntities(getAttr(tag, 'data-code') ?? ''));
+  const hasShortInstallUrl = installUrls.some((code) => code.includes('https://tint.sh/tint'));
+  check(
+    hasShortInstallUrl,
+    `no install button references https://tint.sh/tint — install URL drift (saw: ${installUrls.join(' | ')})`,
+  );
+
   const scripts = [...html.matchAll(/<script\b[^>]*>([\s\S]*?)<\/script>/g)].map((m) => m[1] ?? '');
   const wired = scripts.some((s) => s.includes('.install-widget') && s.includes('data-copy'));
   check(
     wired,
     'no inlined <script> references the .install-widget [data-copy] selector — script bundling or selector drift',
   );
+}
+
+// Plausible Analytics is the load-bearing observability channel for
+// tint.sh — every page must include the snippet, otherwise the dashboard
+// silently under-counts pageviews and our 6-month-trend assumption goes
+// invisible. We assert by URL stem (`plausible.io/js/pa-`) instead of
+// pinning the full hashed bundle name; Plausible reissues the bundle
+// under a new hash periodically and we don't want a remote rotation to
+// break our build. Coverage is page-by-page rather than once-per-build
+// because the failure mode is "404.html lost the snippet during a
+// layout refactor", not "the project lost it everywhere".
+function checkPlausibleSnippet(html: string, sourcePath: string): void {
+  const hasScript = /<script\b[^>]*\bsrc\s*=\s*"https:\/\/plausible\.io\/js\/pa-[^"]+"/.test(html);
+  check(hasScript, `${sourcePath}: missing Plausible analytics <script src="…/pa-…">`);
+  const hasInit = /plausible\.init\s*\(/.test(html);
+  check(hasInit, `${sourcePath}: missing inline plausible.init() call`);
 }
 
 const html = await readDistFile('index.html');
@@ -228,6 +257,8 @@ checkInstallWidget(html);
 checkVideoElements(html);
 checkIconOnlyLinks(html);
 checkLabelControlWiring(html);
+checkPlausibleSnippet(html, 'index.html');
+checkPlausibleSnippet(notFoundHtml, '404.html');
 await checkFaviconLinks(html, 'index.html');
 await checkFaviconLinks(notFoundHtml, '404.html');
 
