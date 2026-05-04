@@ -23,7 +23,10 @@ GitHub Action (.github/workflows/deploy.yml)
        ▼
 Cloudflare Worker (worker/index.ts)
   ├─ /tint, /tint/   →  302 → GitHub Releases  →  download_count++
+  │                   └─ tint_download (GET, hostname-gated)  →  plausible.io
   └─ *               →  env.ASSETS.fetch (dist/)
+                          (HTML carries a hostname-gated client snippet
+                           that fires pageview events to plausible.io)
        │
        ▼
 tint.sh  (Cloudflare-managed DNS, Worker custom domain)
@@ -52,6 +55,7 @@ tint.sh  (Cloudflare-managed DNS, Worker custom domain)
 - **Server events forward client identity.** UA, `cf-connecting-ip`, and `cf-ipcountry` are forwarded so Plausible's standard browser / OS / country / unique-visitor breakdowns work for `tint_download` the same way they work for client pageviews.
 - **Server events use `ctx.waitUntil`.** Without it the runtime cancels the in-flight POST as soon as the redirect returns, undercounting events under load.
 - **Analytics failures are silent.** The `trackDownload` catch is empty by design: a Plausible outage must not deny users their download.
+- **Snippet completeness is enforced by the smoke test.** [`scripts/smoke-dist.ts`](../scripts/smoke-dist.ts) `checkPlausibleSnippet` requires bundle URL stem, `plausible.init()` call, and the `tint.sh` hostname gate to all live in the _same_ inline `<script>` body — see § Smoke test as executable spec.
 
 ## Install widget ([`src/pages/index.astro`](../src/pages/index.astro))
 
@@ -66,19 +70,44 @@ tint.sh  (Cloudflare-managed DNS, Worker custom domain)
 
 ## Smoke test as executable spec
 
-[`scripts/smoke-dist.ts`](../scripts/smoke-dist.ts) runs against `dist/` after every build, locally and in CI. It is the on-disk contract for the invariants this document declares. Currently asserted:
+[`scripts/smoke-dist.ts`](../scripts/smoke-dist.ts) runs against `dist/` after every build, locally and in CI. It is the on-disk contract for the invariants this document declares. Asserted:
 
-- The install widget renders two `data-copy` buttons (brew + curl) with `aria-label`s that match their `data-code`.
-- One install command references `https://tint.sh/tint`.
-- The inlined click-handler script targets the `.install-widget [data-copy]` selector.
-- Every page (`index.html` and `404.html`) contains an inline `<script>` that:
-  - References the Plausible bundle URL stem `plausible.io/js/pa-`.
-  - Calls `plausible.init()`.
-  - Hostname-gates on `tint.sh`.
+**Install widget** (`checkInstallWidget`)
+
+- Renders exactly two `data-copy` buttons (brew + curl) inside the `.install-widget` fieldset.
+- Each button's `aria-label` equals `Copy ${data-code}` (after HTML-entity decoding).
+- At least one button's `data-code` references `https://tint.sh/tint` (install-URL drift guard).
+- An inlined `<script>` references the `.install-widget [data-copy]` selector (handler-wiring guard).
+
+**Analytics** (`checkPlausibleSnippet`, every HTML page)
+
+- An inline `<script>` body contains all three of: bundle URL stem `plausible.io/js/pa-`, `plausible.init()` call, `location.hostname === 'tint.sh'` gate.
+- All three must be in the _same_ script — splitting requirements across scripts is a documented false-pass mode and rejected explicitly.
+
+**Accessibility** (`checkVideoElements`, `checkIconOnlyLinks`, `checkLabelControlWiring`)
+
+- Every `<video>` carries a non-empty `aria-label`. `<video autoplay>` also carries `muted` and `playsinline` (autoplay policies block silently otherwise).
+- Every `<a>` whose only child is `<svg>` carries `aria-label` or `aria-labelledby` (WCAG 2.4.4).
+- Every `<label for="x">` matches an element with `id="x"` on the same page (the install widget tabs depend on this wiring; a typo silently kills tab switching).
+
+**Asset existence** (`checkFaviconLinks`, `checkNonEmptyFile`)
+
+- Every `<link rel="icon">` href resolves to an existing non-empty file in `dist/`.
+- `demo.mp4`, `demo.gif`, `robots.txt`, `sitemap-index.xml` exist and are non-empty.
+
+**Path correctness**
+
+- Homepage `<video>` src is relative (no leading slash, no scheme) and resolves to `/demo.mp4` under `https://tint.sh/`.
+
+**Route shadowing guards** (`checkAbsent`, ENOENT-only success)
+
+- `dist/tint` does not exist (would shadow the Worker's `/tint` redirect via the assets binding).
+- `dist/CNAME` does not exist (GitHub-Pages-specific artifact; this site deploys to Workers).
 
 Adding a new invariant means adding a `check(...)` call. Removing a `check` removes a guarantee — review accordingly.
 
 ## DNS
 
 - **DNS is on Cloudflare.** **(out-of-band)** Apex `tint.sh` is bound to the Worker as a custom domain (no maintained A/AAAA records). Verify by: `dig tint.sh NS` returns Cloudflare nameservers, and the Worker's "Settings → Domains & Routes" panel lists `tint.sh`.
+- **Email forwarding lives in MX + SPF records on this zone.** **(out-of-band)** The Cloudflare zone holds MX records that route `*@tint.sh` mail to a third-party forwarding service, plus an SPF TXT record that authorizes that service to send on behalf of the domain (without it, downstream mail servers will mark forwarded mail as spam). There is no in-repo signal and no CI guard for either record set; deleting them silently breaks email at the apex. Verify by: `dig tint.sh MX` returns external mail hosts AND `dig tint.sh TXT | grep -i 'v=spf1'` returns an SPF record naming the same forwarding service.
 - **Out-of-band.** DNS changes are not in this codebase and not in CI.
