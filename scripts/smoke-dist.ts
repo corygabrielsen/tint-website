@@ -83,6 +83,10 @@ function getAttr(tag: string, name: string): string | undefined {
   return match?.[1];
 }
 
+function escapeRegex(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
 // Every <link rel="icon" href="…"> on the page must point at a file that
 // actually exists in dist/. Astro doesn't validate referenced public/
 // assets, so deleting or renaming a favicon ships a build that loads but
@@ -179,6 +183,7 @@ function checkFeatureDemos(html: string): void {
       'tint matrix',
     ].join('\n'),
   ];
+  const expectedInlineCode = [[], ['tint'], ['.tint'], ['.theme']];
   const sections = [
     ...html.matchAll(/<section\b[^>]*\bdata-feature-demo\b[^>]*>[\s\S]*?<\/section>/g),
   ].map((m) => m[0]);
@@ -190,6 +195,14 @@ function checkFeatureDemos(html: string): void {
   for (const [i, section] of sections.entries()) {
     check(/<h2\b/.test(section), `feature demo ${i}: missing title`);
     check(/<p\b/.test(section), `feature demo ${i}: missing sentence`);
+    const sentence = section.match(/<p\b[^>]*>[\s\S]*?<\/p>/)?.[0] ?? '';
+    check(!sentence.includes('`'), `feature demo ${i}: sentence rendered literal backticks`);
+    for (const codeText of expectedInlineCode[i] ?? []) {
+      check(
+        new RegExp(`<code>${escapeRegex(codeText)}</code>`).test(sentence),
+        `feature demo ${i}: sentence missing inline code for ${codeText}`,
+      );
+    }
     check(/<video\b/.test(section), `feature demo ${i}: missing video`);
     check(/\bdata-feature-command\b/.test(section), `feature demo ${i}: missing command block`);
     const copyButton = section.match(

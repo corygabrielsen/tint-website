@@ -212,7 +212,6 @@ a:hover {
   aspect-ratio: 1;
   border-radius: 50%;
   background: color-mix(in srgb, var(--bg) 22%, transparent);
-  box-shadow: 0 0.25rem 1.75rem color-mix(in srgb, var(--bg) 42%, transparent);
 }
 
 .demo-play-overlay::after {
@@ -223,7 +222,6 @@ a:hover {
   transform: translateX(12%);
   border-block: clamp(1.9rem, 4.6vw, 3.2rem) solid transparent;
   border-left: clamp(3.4rem, 8.2vw, 5.75rem) solid color-mix(in srgb, var(--fg) 90%, transparent);
-  filter: drop-shadow(0 0.25rem 1rem color-mix(in srgb, var(--bg) 65%, transparent));
 }
 
 .demo-frame[data-demo-active][data-demo-paused] .demo-play-overlay {
