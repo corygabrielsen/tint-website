@@ -55,7 +55,6 @@ const installCommands = [
       class="demo"
       src="/demo.mp4"
       autoplay
-      controls
       loop
       muted
       playsinline
@@ -73,21 +72,3 @@ const installCommands = [
     <p class="copyright">© 2026 Cory Gabrielsen</p>
   </main>
 </Layout>
-
-<script>
-  const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)');
-  const demoVideos = document.querySelectorAll<HTMLVideoElement>('video.demo[autoplay]');
-
-  const applyMotionPreference = () => {
-    demoVideos.forEach((video) => {
-      if (reduceMotion.matches) {
-        video.pause();
-        video.removeAttribute('autoplay');
-        video.currentTime = 0;
-      }
-    });
-  };
-
-  applyMotionPreference();
-  reduceMotion.addEventListener('change', applyMotionPreference);
-</script>
