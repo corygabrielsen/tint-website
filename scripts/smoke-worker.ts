@@ -29,6 +29,8 @@ function check(condition: boolean, message: string): void {
 interface FetchCall {
   url: string;
   method: string;
+  contentType: string | null;
+  body: string;
 }
 const fetchCalls: FetchCall[] = [];
 
@@ -42,7 +44,13 @@ globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
         : (input as Request).url;
   const method =
     init?.method ?? (typeof input === 'object' && 'method' in input ? input.method : 'GET');
-  fetchCalls.push({ url, method });
+  // Headers in RequestInit can be a Headers object, a plain
+  // record, or an array of tuples — wrap in `new Headers(...)`
+  // for uniform access regardless of which shape the caller used.
+  const headers = new Headers(init?.headers ?? {});
+  const contentType = headers.get('content-type');
+  const body = typeof init?.body === 'string' ? init.body : '';
+  fetchCalls.push({ url, method, contentType, body });
   return new Response('mocked', { status: 202 });
 }) as typeof fetch;
 
@@ -106,10 +114,52 @@ async function call(method: string, url: string): Promise<Response> {
   );
   // Drain the waitUntil so the mocked fetch records the Plausible POST.
   await Promise.all(waitUntilCalls);
+
+  // Plausible's /api/event contract has multiple required parts;
+  // each is asserted separately so a partial regression names the
+  // exact field that broke.
   check(
-    fetchCalls.length === 1 && fetchCalls[0]?.url === 'https://plausible.io/api/event',
-    `GET tint.sh/tint: trackDownload should POST to plausible.io/api/event, got ${JSON.stringify(fetchCalls)}`,
+    fetchCalls.length === 1,
+    `GET tint.sh/tint: trackDownload should fire exactly one outbound fetch, got ${fetchCalls.length}`,
   );
+  const plausibleCall = fetchCalls[0];
+  if (plausibleCall) {
+    check(
+      plausibleCall.method === 'POST',
+      `trackDownload: method must be POST (Plausible /api/event requires POST), got ${plausibleCall.method}`,
+    );
+    check(
+      plausibleCall.url === 'https://plausible.io/api/event',
+      `trackDownload: URL must be https://plausible.io/api/event, got ${plausibleCall.url}`,
+    );
+    check(
+      plausibleCall.contentType === 'application/json',
+      `trackDownload: Content-Type must be application/json, got ${JSON.stringify(plausibleCall.contentType)}`,
+    );
+    let payload: { name?: string; url?: string; domain?: string; props?: Record<string, unknown> } =
+      {};
+    try {
+      payload = JSON.parse(plausibleCall.body);
+    } catch (error) {
+      check(false, `trackDownload: body must be valid JSON: ${(error as Error).message}`);
+    }
+    check(
+      payload.name === 'tint_download',
+      `trackDownload: payload.name must be 'tint_download' (event name visible in Plausible dashboard), got ${JSON.stringify(payload.name)}`,
+    );
+    check(
+      payload.url === 'https://tint.sh/tint',
+      `trackDownload: payload.url must be 'https://tint.sh/tint' (the canonical-host URL where the event happened), got ${JSON.stringify(payload.url)}`,
+    );
+    check(
+      payload.domain === 'tint.sh',
+      `trackDownload: payload.domain must be 'tint.sh' (the Plausible dashboard identifier), got ${JSON.stringify(payload.domain)}`,
+    );
+    check(
+      typeof payload.props === 'object' && payload.props !== null && 'country' in payload.props,
+      `trackDownload: payload.props.country must be present (Plausible's country breakdown depends on it), got ${JSON.stringify(payload.props)}`,
+    );
+  }
 }
 
 // Canonical-host /tint with trailing slash: same redirect, forgive copy-paste.

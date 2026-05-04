@@ -7,17 +7,16 @@ Deployed to [tint.sh](https://tint.sh) as a Cloudflare Worker.
 ## Develop
 
 ```bash
-npm install                       # one-time
-npm run dev                       # local dev server (astro dev)
-npm run build                     # static build into dist/
-npx astro check                   # typecheck
-npx biome check .                 # lint + format
-npx tsx scripts/smoke-dist.ts     # structural assertions on dist/
+npm install     # one-time
+npm run dev     # local dev server (astro dev)
+npm run check   # full validation chain (typecheck + lint + build + smoke)
 ```
+
+The individual steps (`npm run typecheck`, `npm run lint`, `npm run build`, `npm run smoke`) are also available for iteration.
 
 ## Deploy
 
-Auto-deploys on push to `master` via Cloudflare Workers Builds. The CI gate (lint + typecheck + build + smoke) lives in [`wrangler.jsonc`](wrangler.jsonc) `build.command`, so wrangler runs it before any command that builds the Worker — Builds, or a manual `wrangler deploy` from an authenticated checkout. A failing smoke test aborts the deploy. There is no GitHub Action deploy job. The deliberate escape hatches that bypass the gate are `wrangler rollback` and the Cloudflare dashboard's rollback / promote-version actions; they reuse already-built bytes (no rebuild ⇒ no gate) and are reserved for incident response.
+Auto-deploys on push to `master` via Cloudflare Workers Builds. The CI gate is `npm run check` (defined in [`package.json`](package.json)); [`wrangler.jsonc`](wrangler.jsonc) `build.command` calls into it, so wrangler runs the same chain before any command that builds the Worker — Builds, or a manual `wrangler deploy` from an authenticated checkout. A failing check aborts the deploy. There is no GitHub Action deploy job. The deliberate escape hatches that bypass the gate are `wrangler rollback` and the Cloudflare dashboard's rollback / promote-version actions; they reuse already-built bytes (no rebuild ⇒ no gate) and are reserved for incident response.
 
 Each PR gets its own stable preview URL of the shape `<alias>-tint-website.<subdomain>.workers.dev`, where Cloudflare derives `<alias>` from the branch name (lowercase letters, numbers, and dashes only; `/` and other invalid hostname characters are sanitized; long branches truncated with a hash suffix). The exact URL for any given PR is the one Cloudflare's GitHub App posts as a sticky PR comment — that comment, not a formula in this README, is the source of truth.
 

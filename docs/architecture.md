@@ -14,11 +14,10 @@ git push master                git push <feature-branch>  +  PR open
        ▼                                       ▼
 Cloudflare Workers Builds            Cloudflare Workers Builds
   npx wrangler deploy                  npx wrangler versions upload
-  └─ build.command (wrangler.jsonc)    └─ build.command (wrangler.jsonc)
-       ├─ astro check                       ├─ astro check
-       ├─ biome check                       ├─ biome check
-       ├─ astro build  →  dist/             ├─ astro build  →  dist/
-       └─ smoke-dist.ts                     └─ smoke-dist.ts
+  └─ build.command:                    └─ build.command:
+       npm run check                        npm run check
+       (typecheck + lint + build +          (single source of truth
+        smoke-dist + smoke-worker)           in package.json)
        │                                       │
        ▼                                       ▼
 Cloudflare Worker (production)        Worker version (preview alias)
@@ -37,7 +36,7 @@ Cloudflare Worker (production)        Worker version (preview alias)
 tint.sh  (Cloudflare-managed DNS, Worker custom domain)
 ```
 
-GitHub Actions runs [`ci.yml`](../.github/workflows/ci.yml) on every PR (lint + typecheck + build + smoke) as a fast, independent PR check. It does not deploy.
+Both `wrangler deploy` and `wrangler versions upload` invoke the build via [`wrangler.jsonc`](../wrangler.jsonc) `build.command`, which calls `npm run check` — the single source of truth for the validation chain (defined in [`package.json`](../package.json)). GitHub Actions runs the identical `npm run check` on every PR via [`ci.yml`](../.github/workflows/ci.yml) as a fast, independent PR check; it does not deploy.
 
 ## Hosting
 
@@ -72,9 +71,10 @@ GitHub Actions runs [`ci.yml`](../.github/workflows/ci.yml) on every PR (lint + 
 ## Deploy pipeline
 
 - **Single automated deploy path.** **(out-of-band)** Cloudflare Workers Builds is the only automated deployer — both for production (master) and per-PR previews. There is no GitHub Action deploy job and no automation in this repo consumes `CLOUDFLARE_API_TOKEN`. Adding a second _automated_ deployer (e.g., a re-introduced GitHub Action that calls `wrangler deploy`) would race Builds and is forbidden. Verify by: in the Cloudflare dashboard for this Worker, the "Settings → Build" panel shows this repository connected; no `.github/workflows/deploy.yml` exists in the repo.
-- **CI gate is wrangler-side, not CI-side.** [`wrangler.jsonc`](../wrangler.jsonc) `build.command` runs `astro check && biome check && astro build && smoke-dist.ts`. Wrangler executes it before any rebuilding command (e.g. `wrangler deploy`, `wrangler versions upload`), whether triggered by Builds or by an operator from a local checkout. A failure aborts the wrangler invocation that triggered it. No rebuilding path via wrangler skips this gate. (Rollback paths skip it; see the next bullet.)
+- **CI gate is wrangler-side, not CI-side.** [`wrangler.jsonc`](../wrangler.jsonc) `build.command` runs `npm run check` — the single source of truth for the validation chain (typecheck + lint + build + smoke; defined in [`package.json`](../package.json)). Wrangler executes it before any rebuilding command (e.g. `wrangler deploy`, `wrangler versions upload`), whether triggered by Builds or by an operator from a local checkout. A failure aborts the wrangler invocation that triggered it. No rebuilding path via wrangler skips this gate. (Rollback paths skip it; see the next bullet.)
+- **`build.command` and `preview_urls` are smoke-enforced.** [`scripts/smoke-dist.ts`](../scripts/smoke-dist.ts) `checkWranglerConfig` parses [`wrangler.jsonc`](../wrangler.jsonc) and asserts `build.command === "npm run check"` and `preview_urls === true`. Either silently changing breaks deploys (a different `build.command` would deploy without the gate; removing `preview_urls` would silently disable preview URLs after the next deploy) — both regressions fail the smoke gate, which fails the deploy.
 - **Operator escape hatches.** `wrangler rollback` from an authenticated checkout, and the Cloudflare dashboard's rollback / "promote previous version" actions, write to production by reusing a previously-deployed version's bytes. They do not rebuild and therefore do not run the wrangler `build.command` gate. This is correct: the gate guards _new_ code; rollback restores known-good code that already passed it. Use during incidents only.
-- **Independent PR check.** [`.github/workflows/ci.yml`](../.github/workflows/ci.yml) runs the same checks on every PR via GitHub Actions. Strictly redundant with the wrangler gate; kept for fast PR feedback (no Cloudflare Builds provisioning latency) and for catching environment-specific issues that only manifest on GitHub's runners.
+- **Independent PR check.** [`.github/workflows/ci.yml`](../.github/workflows/ci.yml) calls the same `npm run check` on every PR via GitHub Actions. Strictly redundant with the wrangler gate; kept for fast PR feedback (no Cloudflare Builds provisioning latency) and for catching environment-specific issues that only manifest on GitHub's runners.
 - **Production deploy command.** **(out-of-band)** Default `npx wrangler deploy`. Set in the Cloudflare Builds dashboard under "Build configuration → Deploy command." Verify by: dashboard shows this exact command.
 - **Preview deploy command.** **(out-of-band)** Default `npx wrangler versions upload`. Cloudflare Builds runs this for every non-production branch with an open PR; the resulting alias URL is posted as a PR comment by Cloudflare's GitHub App.
 

@@ -67,7 +67,15 @@ async function trackDownload(request: Request): Promise<void> {
       },
       body: JSON.stringify({
         name: 'tint_download',
-        url: `https://${PLAUSIBLE_DOMAIN}/tint`,
+        // Each field sources from the constant whose concern it
+        // describes: `url` is the canonical-host URL where the
+        // event happened (a routing concern); `domain` is the
+        // Plausible dashboard identifier the event is attributed
+        // to (an attribution concern). They equal each other today
+        // because both constants equal 'tint.sh', but if Plausible
+        // were ever reconfigured under a different dashboard name,
+        // the event URL would still reflect the real request host.
+        url: `https://${CANONICAL_HOST}/tint`,
         domain: PLAUSIBLE_DOMAIN,
         props: { country: request.headers.get('cf-ipcountry') ?? 'unknown' },
       }),
