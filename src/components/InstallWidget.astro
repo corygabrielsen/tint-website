@@ -40,6 +40,9 @@ import { Code } from 'astro:components';
 import type { ShikiTransformer } from 'shiki';
 
 interface Command {
+  // Visible tab label only. NOT used as a DOM identifier — input ids and
+  // label `for` attributes are derived from the array index instead, so
+  // labels with whitespace, punctuation, or duplicates are all safe.
   readonly label: string;
   readonly code: string;
 }
@@ -52,9 +55,8 @@ interface Props {
   commands: readonly [Command, Command];
   // Unique id for this widget instance. Defaults to a per-render UUID so
   // two widgets on the same page don't collide on the radio name and the
-  // `${id}-${cmd.label}` ids that wire labels to inputs. Override only
-  // when you need to target the fieldset from outside (tests, anchor
-  // links, etc.).
+  // `${id}-${i}` ids that wire labels to inputs. Override only when you
+  // need to target the fieldset from outside (tests, anchor links, etc.).
   id?: string;
 }
 
@@ -75,23 +77,69 @@ const stripTabindex: ShikiTransformer = {
       source order: the :nth-of-type / :nth-child selectors below match by
       position, not id, so a single combined loop would shuffle the order
       and break the active-tab mapping. */}
-  {commands.map((cmd, i) => (
+  {commands.map((_cmd, i) => (
     <input
       class="sr-only"
       type="radio"
       name={`${id}-radios`}
-      id={`${id}-${cmd.label}`}
+      id={`${id}-${i}`}
       checked={i === 0}
     />
   ))}
   <div class="tabs">
-    {commands.map((cmd) => (
-      <label for={`${id}-${cmd.label}`}>{cmd.label}</label>
+    {commands.map((cmd, i) => (
+      <label for={`${id}-${i}`}>{cmd.label}</label>
     ))}
   </div>
   <div class="panels">
     {commands.map((cmd) => (
-      <div class="panel"><button data-copy data-code={cmd.code} type="button" class="command" aria-label={`Copy ${cmd.code}`}><Code code={cmd.code} lang="sh" theme="css-variables" inline class="command-script" transformers={[stripTabindex]} /><span class="copy-status"><svg class="icon-copy" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="square" aria-hidden="true"><path d="M8.75 8.75V2.75H21.25V15.25H15.25M15.25 8.75H2.75V21.25H15.25V8.75Z" /></svg><svg class="icon-check" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="square" aria-hidden="true"><path d="M2.75 15.0938L9 20.25L21.25 3.75" /></svg><span class="copy-announce sr-only" aria-live="polite"></span></span></button></div>
+      <div class="panel">
+        <button
+          data-copy
+          data-code={cmd.code}
+          type="button"
+          class="command"
+          aria-label={`Copy ${cmd.code}`}
+        >
+          <Code
+            code={cmd.code}
+            lang="sh"
+            theme="css-variables"
+            inline
+            class="command-script"
+            transformers={[stripTabindex]}
+          />
+          <span class="copy-status">
+            <svg
+              class="icon-copy"
+              width="16"
+              height="16"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="1.5"
+              stroke-linecap="square"
+              aria-hidden="true"
+            >
+              <path d="M8.75 8.75V2.75H21.25V15.25H15.25M15.25 8.75H2.75V21.25H15.25V8.75Z" />
+            </svg>
+            <svg
+              class="icon-check"
+              width="16"
+              height="16"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linecap="square"
+              aria-hidden="true"
+            >
+              <path d="M2.75 15.0938L9 20.25L21.25 3.75" />
+            </svg>
+            <span class="copy-announce sr-only" aria-live="polite"></span>
+          </span>
+        </button>
+      </div>
     ))}
   </div>
 </fieldset>
