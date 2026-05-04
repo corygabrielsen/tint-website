@@ -318,6 +318,14 @@ a:hover {
   border: 1px solid var(--border);
 }
 
+@media (max-width: 36rem) {
+  .demo {
+    width: calc(100% + 3rem);
+    max-width: none;
+    margin-inline: -1.5rem;
+  }
+}
+
 /* =============================================================================
    7. GitHub link
    ========================================================================== */
