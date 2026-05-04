@@ -148,12 +148,13 @@ const stripTabindex: ShikiTransformer = {
   .install-widget {
     border: 1px solid var(--border);
     background: var(--code-bg);
-    /* Cap the widget narrower than its parent <main> so it sits with a
-       ~4% buffer on each side at the page max-width, matching the
-       "media is wider than form controls" hierarchy. The 92% term wins
-       below ~57.5rem of available width and keeps the buffer
-       proportional on smaller viewports; auto margins centre it. */
-    width: min(57.5rem, 92%);
+    /* 60rem (15/16 of main's 64rem cap) keeps the install widget
+       narrower than the demo media at the page max width, expressing
+       the "media wider than form controls" hierarchy. At narrower
+       viewports the cap doesn't engage and the install widget fills
+       main edge-to-edge with the media, since there's no horizontal
+       room to express a hierarchy. */
+    max-width: 60rem;
     margin-inline: auto;
     /* fieldset and flex-item defaults treat min-inline-size as min-content,
        which lets long install commands stretch the widget past the
