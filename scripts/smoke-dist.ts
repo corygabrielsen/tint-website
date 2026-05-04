@@ -237,11 +237,20 @@ function checkInstallWidget(html: string): void {
     `no install button references https://tint.sh/tint — install URL drift (saw: ${installUrls.join(' | ')})`,
   );
 
+  // Match the literal compound selector `.install-widget [data-copy]`,
+  // not the two substrings independently. The previous looser check
+  // (`.install-widget` + `data-copy` anywhere in the same script body)
+  // false-passed when the substrings appeared in unrelated contexts —
+  // e.g. a class rename to `.install` plus an unrelated `data-copy`
+  // attribute elsewhere in the bundle would still satisfy it. The
+  // bundler may collapse spaces around CSS combinators or rewrite the
+  // selector via a single pass, so we accept any whitespace run between
+  // the class and the attribute selector.
   const scripts = [...html.matchAll(/<script\b[^>]*>([\s\S]*?)<\/script>/g)].map((m) => m[1] ?? '');
-  const wired = scripts.some((s) => s.includes('.install-widget') && s.includes('data-copy'));
+  const wired = scripts.some((s) => /\.install-widget\s+\[data-copy\]/.test(s));
   check(
     wired,
-    'no inlined <script> references the .install-widget [data-copy] selector — script bundling or selector drift',
+    'no inlined <script> references the `.install-widget [data-copy]` selector — script bundling or selector drift',
   );
 }
 
