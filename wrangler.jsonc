@@ -12,9 +12,12 @@
   // gate uniform across every entrypoint that builds the Worker:
   // `wrangler deploy` locally, `wrangler versions upload`, and
   // Cloudflare Workers Builds (which calls those commands by
-  // default). A failure here aborts the deploy; there is no other
-  // path to production. CI also runs these same checks
-  // independently in .github/workflows/ci.yml for fast PR feedback.
+  // default). A failure here aborts the wrangler invocation that
+  // triggered it. The gate is the only automated production path;
+  // manual `wrangler rollback` and dashboard rollback remain
+  // available as operator escape hatches and bypass this gate by
+  // design. CI also runs these checks independently in
+  // .github/workflows/ci.yml for fast PR feedback.
   "build": {
     "command": "npm run typecheck && npm run lint && npm run build && npm run smoke"
   }

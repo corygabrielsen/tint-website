@@ -22,13 +22,15 @@ Cloudflare Workers Builds            Cloudflare Workers Builds
        │                                       │
        ▼                                       ▼
 Cloudflare Worker (production)        Worker version (preview alias)
-  worker/index.ts                       <branch>-tint-website
+  worker/index.ts                       <alias>-tint-website
   ├─ /tint    →  302 → GitHub Releases     .<subdomain>.workers.dev
-  │            └─ tint_download (GET,     │
-  │               hostname-gated)         │  Posted as PR comment by
-  │                  →  plausible.io      │  Cloudflare's GitHub App.
-  └─ *        →  env.ASSETS.fetch (dist/) │  Analytics gate excludes it
-                                          │  (hostname ≠ tint.sh).
+  │            └─ tint_download (GET,     │  (alias = sanitized branch
+  │               hostname-gated)         │   name; canonical URL is
+  │                  →  plausible.io      │   the one in the PR comment
+  └─ *        →  env.ASSETS.fetch (dist/) │   Cloudflare posts).
+                                          │
+                                          │  Analytics gate excludes
+                                          │  previews (hostname ≠ tint.sh).
        │
        ▼
 tint.sh  (Cloudflare-managed DNS, Worker custom domain)
@@ -67,7 +69,7 @@ GitHub Actions runs [`ci.yml`](../.github/workflows/ci.yml) on every PR (lint + 
 
 ## Deploy pipeline
 
-- **Single deploy path.** **(out-of-band)** Cloudflare Workers Builds is the only writer to the Worker — both for production (master) and per-PR previews. There is no GitHub Action deploy job and no `CLOUDFLARE_API_TOKEN` repo secret. Verify by: in the Cloudflare dashboard for this Worker, the "Settings → Build" panel shows this repository connected; no `.github/workflows/deploy.yml` exists in the repo.
+- **Single automated deploy path.** **(out-of-band)** Cloudflare Workers Builds is the only automated deployer — both for production (master) and per-PR previews. There is no GitHub Action deploy job and no `CLOUDFLARE_API_TOKEN` repo secret. Manual `wrangler deploy` / `wrangler rollback` from an authenticated checkout, and dashboard rollback/promote actions, are deliberate operator escape hatches and remain available; adding a _second_ automated deployer (e.g., a re-introduced GitHub Action that calls `wrangler deploy`) would race Builds and is forbidden. Verify by: in the Cloudflare dashboard for this Worker, the "Settings → Build" panel shows this repository connected; no `.github/workflows/deploy.yml` exists in the repo.
 - **CI gate runs as a wrangler pre-deploy step.** [`wrangler.jsonc`](../wrangler.jsonc) `build.command` runs `astro check && biome check && astro build && smoke-dist.ts` before any `wrangler deploy` or `wrangler versions upload`. A failure aborts the deploy. This gate is in-repo and runs in every entrypoint that builds the Worker — Cloudflare Builds, local `wrangler deploy`, etc.
 - **Independent PR check.** [`.github/workflows/ci.yml`](../.github/workflows/ci.yml) runs the same checks on every PR via GitHub Actions. Strictly redundant with the wrangler gate; kept for fast PR feedback (no Cloudflare Builds provisioning latency) and for catching environment-specific issues that only manifest on GitHub's runners.
 - **Production deploy command.** **(out-of-band)** Default `npx wrangler deploy`. Set in the Cloudflare Builds dashboard under "Build configuration → Deploy command." Verify by: dashboard shows this exact command.
@@ -76,7 +78,8 @@ GitHub Actions runs [`ci.yml`](../.github/workflows/ci.yml) on every PR (lint + 
 
 ## Preview deployments
 
-- **One alias per PR branch.** **(out-of-band, Cloudflare-managed)** Each PR commit triggers a Workers Builds build. On success it uploads a new Worker version aliased to the branch name: `<branch>-tint-website.<subdomain>.workers.dev`. The alias is stable across pushes to the same branch, so a phone-side bookmark survives every commit on that PR.
+- **One alias per PR branch.** **(out-of-band, Cloudflare-managed)** Each PR commit triggers a Workers Builds build. On success it uploads a new Worker version aliased to a sanitized form of the branch name. The hostname has the shape `<alias>-tint-website.<subdomain>.workers.dev`, where Cloudflare derives `<alias>` from the branch name under the constraints below. The alias is stable across pushes to the same branch, so a phone-side bookmark survives every commit on that PR. **The canonical URL for any given PR is the one Cloudflare's GitHub App posts as a sticky PR comment** — Cloudflare's branch-to-alias derivation is partially undocumented (the public docs say "uses actual branch name as is" while also requiring aliases to satisfy the charset rules below, so an unspecified sanitization step bridges the gap), and reconstructing the URL from a formula here is brittle; trust the comment.
+- **Alias constraints (Cloudflare-published).** Lowercase letters, digits, and dashes only; must begin with a lowercase letter; alias + worker name + dash ≤ 63 characters (DNS label limit). Branches whose names exceed the limit get truncated with a 4-character hash suffix per Cloudflare's [Aug 2025 long-name update](https://developers.cloudflare.com/changelog/post/2025-08-08-support-long-branch-names-preview-aliases/). [`CONTRIBUTING.md`](../CONTRIBUTING.md) requires branch names of the form `<type>/<short-description>`, so every valid branch in this repo contains a `/` that Cloudflare must sanitize before the alias is valid; the exact transform is not part of this contract.
 - **Preview URLs require [`preview_urls: true`](../wrangler.jsonc).** Wrangler 4.34+ defaults this off; without it, alias URLs return Cloudflare's "preview disabled" page even after a successful upload.
 - **Previews bypass production.** A `wrangler versions upload` does not promote the version to the active deployment slot. Production at `tint.sh` continues serving the previous deploy until master receives a push and `wrangler deploy` runs.
 - **Analytics auto-exclude previews.** The hostname gate in [`worker/index.ts`](../worker/index.ts) and [`src/layouts/Layout.astro`](../src/layouts/Layout.astro) checks `hostname === 'tint.sh'`. Preview hostnames don't match, so `tint_download` events and pageviews don't fire — previews can't pollute the dashboard. This is the same gate that excludes `*.workers.dev` and `astro dev`; previews are a third class of caller it covers for free.
