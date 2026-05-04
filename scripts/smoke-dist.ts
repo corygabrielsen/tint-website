@@ -9,11 +9,22 @@ function check(condition: boolean, message: string): void {
   }
 }
 
+// Distinguish "file is missing" (the common, expected build-regression
+// cause) from "we couldn't tell whether it's missing" (EACCES, EIO,
+// EMFILE, ENOTDIR, ...). Mistaking the latter for the former wastes
+// debugging time chasing a phantom build problem when the real cause is
+// the filesystem itself.
+function describeFsFailure(action: string, path: string, error: unknown): string {
+  const code = (error as NodeJS.ErrnoException).code;
+  if (code === 'ENOENT') return `missing ${path}`;
+  return `failed to ${action} ${path} (${code ?? 'unknown'}): ${(error as Error).message}`;
+}
+
 async function readDistFile(path: string): Promise<string> {
   try {
     return await readFile(new URL(path, dist), 'utf8');
   } catch (error) {
-    errors.push(`missing ${path}: ${(error as Error).message}`);
+    errors.push(describeFsFailure('read', path, error));
     return '';
   }
 }
@@ -24,7 +35,29 @@ async function checkNonEmptyFile(path: string): Promise<void> {
     check(file.isFile(), `${path} is not a file`);
     check(file.size > 0, `${path} is empty`);
   } catch (error) {
-    errors.push(`missing ${path}: ${(error as Error).message}`);
+    errors.push(describeFsFailure('stat', path, error));
+  }
+}
+
+// Asserts a path is NOT present in dist/. Use to guard against build-
+// time regressions that would shadow Worker routes or other handled
+// paths (worker/index.ts handles `/tint` in code, so a file at
+// dist/tint would silently take precedence and break the redirect).
+//
+// Only ENOENT counts as success. Any other error (EACCES, EIO, etc.)
+// means the smoke test couldn't determine whether the shadowing file
+// exists — surface it loudly rather than passing on the assumption.
+async function checkAbsent(path: string): Promise<void> {
+  try {
+    await stat(new URL(path, dist));
+    errors.push(`${path} must not exist in dist/ — would shadow a Worker route`);
+  } catch (error) {
+    const code = (error as NodeJS.ErrnoException).code;
+    if (code !== 'ENOENT') {
+      errors.push(
+        `checkAbsent(${path}) failed unexpectedly (${code ?? 'unknown'}): ${(error as Error).message}`,
+      );
+    }
   }
 }
 
@@ -193,12 +226,76 @@ function checkInstallWidget(html: string): void {
     }
   }
 
+  // The curl install command must reference https://tint.sh/tint — the
+  // short URL the Worker (worker/index.ts) handles. Reverting to the
+  // raw github.com URL bloats the displayed command and bypasses the
+  // Worker's `tint_download` event.
+  const installUrls = buttons.map((tag) => decodeHtmlEntities(getAttr(tag, 'data-code') ?? ''));
+  const hasShortInstallUrl = installUrls.some((code) => code.includes('https://tint.sh/tint'));
+  check(
+    hasShortInstallUrl,
+    `no install button references https://tint.sh/tint — install URL drift (saw: ${installUrls.join(' | ')})`,
+  );
+
   const scripts = [...html.matchAll(/<script\b[^>]*>([\s\S]*?)<\/script>/g)].map((m) => m[1] ?? '');
   const wired = scripts.some((s) => s.includes('.install-widget') && s.includes('data-copy'));
   check(
     wired,
     'no inlined <script> references the .install-widget [data-copy] selector — script bundling or selector drift',
   );
+}
+
+// Every page must include the Plausible snippet. The snippet is
+// dynamically injected by an inline gate in Layout.astro, so we look
+// for the bundle URL inside inline script bodies rather than a
+// `<script src="…">` attribute.
+//
+// Three requirements must hold *within a single inline <script>*:
+//   1. Bundle URL stem (loose match by `plausible.io/js/pa-` —
+//      Plausible reissues the bundle under new hashes, and pinning
+//      the full hash would make a remote rotation a CI failure).
+//   2. `plausible.init()` is called so SPA pageview hooks are wired.
+//   3. Hostname-gated on `tint.sh` — without this, *.workers.dev hits,
+//      preview hostnames, and `astro dev` auto-fire production
+//      pageviews at script load. Symmetric server-side gate in
+//      worker/index.ts.
+//
+// All three must be satisfied by the *same* script, not by three
+// different scripts each contributing one fragment. Splitting the
+// requirements across three independent `scripts.some(...)` calls
+// false-passes when the predicates happen to match unrelated scripts
+// (a benign-looking page with three scripts each containing one of
+// the strings would slip through). The `every` over a single
+// candidate enforces the conjunction.
+//
+// Run per-page (not once per build) because the failure mode is
+// "404.html lost the snippet during a layout refactor".
+function checkPlausibleSnippet(html: string, sourcePath: string): void {
+  const scripts = [...html.matchAll(/<script\b[^>]*>([\s\S]*?)<\/script>/g)].map((m) => m[1] ?? '');
+  const requirements: Array<[name: string, pattern: RegExp]> = [
+    ['Plausible bundle URL (plausible.io/js/pa-*)', /plausible\.io\/js\/pa-/],
+    ['plausible.init() call', /plausible\.init\s*\(/],
+    ["'tint.sh' hostname gate", /location\.hostname\s*===\s*['"]tint\.sh['"]/],
+  ];
+
+  if (scripts.some((s) => requirements.every(([, re]) => re.test(s)))) {
+    return;
+  }
+
+  // No single script satisfied all three. Give the most actionable
+  // diagnostic by distinguishing "missing entirely" from "scattered
+  // across unrelated scripts" (the false-pass mode this check is
+  // explicitly designed to catch).
+  const missing = requirements.filter(([, re]) => !scripts.some((s) => re.test(s))).map(([n]) => n);
+  if (missing.length === 0) {
+    errors.push(
+      `${sourcePath}: Plausible requirements satisfied across multiple scripts but no single inline <script> contains all three (bundle URL + plausible.init() + 'tint.sh' hostname gate must be in the same script)`,
+    );
+  } else {
+    errors.push(
+      `${sourcePath}: no inline <script> contains a complete Plausible snippet; missing in any script: ${missing.join(', ')}`,
+    );
+  }
 }
 
 const html = await readDistFile('index.html');
@@ -228,6 +325,8 @@ checkInstallWidget(html);
 checkVideoElements(html);
 checkIconOnlyLinks(html);
 checkLabelControlWiring(html);
+checkPlausibleSnippet(html, 'index.html');
+checkPlausibleSnippet(notFoundHtml, '404.html');
 await checkFaviconLinks(html, 'index.html');
 await checkFaviconLinks(notFoundHtml, '404.html');
 
@@ -235,6 +334,20 @@ await checkNonEmptyFile('demo.mp4');
 await checkNonEmptyFile('demo.gif');
 await checkNonEmptyFile('robots.txt');
 await checkNonEmptyFile('sitemap-index.xml');
+
+// Worker-route shadowing guard. A static file with the same name as a
+// path `worker/index.ts` handles in code would be served by the assets
+// binding and never reach the handler. Add an entry here for every
+// future `/foo` route the Worker grows.
+await checkAbsent('tint');
+
+// Dead-artifact guard. `CNAME` is GitHub-Pages-specific machinery
+// (tells Pages which custom domain to serve at). This site deploys to
+// Cloudflare Workers; a CNAME file in dist/ would ship as a static
+// asset at `tint.sh/CNAME`, exposing a stale "we're served from Pages"
+// signal that contradicts the actual hosting topology and confuses
+// anyone debugging.
+await checkAbsent('CNAME');
 
 if (errors.length > 0) {
   console.error('dist smoke test failed:');

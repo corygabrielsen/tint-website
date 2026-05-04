@@ -23,6 +23,27 @@ const { title, description, favicon = '/favicon.svg' } = Astro.props;
     <meta name="description" content={description} />
     <link rel="icon" type="image/svg+xml" href={favicon} />
     <title>{title}</title>
+    {/* Plausible Analytics. The bundle URL is keyed to tint.sh (not a
+        secret); domain identification is baked into the bundle.
+
+        Hostname gate: the bundle auto-fires a pageview at script load,
+        so suppressing analytics on non-canonical hosts requires not
+        loading the bundle at all. *.workers.dev hits, future preview
+        hostnames, and local `astro dev` short-circuit. Symmetric
+        server-side gate lives in worker/index.ts.
+
+        is:inline lands the snippet in <head> verbatim. */}
+    <script is:inline>
+      if (location.hostname === 'tint.sh') {
+        var s = document.createElement('script');
+        s.async = true;
+        s.src = 'https://plausible.io/js/pa-2GDvlSNQ-zZ5v8bZRNwrQ.js';
+        document.head.appendChild(s);
+        window.plausible = window.plausible || function () { (plausible.q = plausible.q || []).push(arguments); };
+        window.plausible.init = window.plausible.init || function (i) { plausible.o = i || {}; };
+        window.plausible.init();
+      }
+    </script>
   </head>
   <body>
     <slot />
