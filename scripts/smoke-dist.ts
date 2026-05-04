@@ -1,4 +1,5 @@
 import { readFile, stat } from 'node:fs/promises';
+import { parse as parseJsonc, printParseErrorCode } from 'jsonc-parser';
 
 const dist = new URL('../dist/', import.meta.url);
 const errors: string[] = [];
@@ -311,16 +312,22 @@ function checkPlausibleSnippet(html: string, sourcePath: string): void {
 // that nothing else in the pipeline detects the loss of. See call
 // site comment for the rationale.
 //
-// Approach: convert JSONC to JSON (strip block comments, strip
-// line comments, strip trailing commas) and then parse, so the
-// assertions can address structural property paths
-// (`config.build?.command`, `config.preview_urls`) rather than
-// raw-text regex. Property-path assertions guarantee the entry
-// is at the top level — a future nested entry with the same
-// literal value cannot false-pass them. The three regex strips
-// together cover the JSONC relaxations wrangler accepts; we
-// don't add a JSONC parser dep because the format we use is
-// small and hand-written, and the strips are short and explicit.
+// Approach: parse the JSONC with the canonical parser
+// (`jsonc-parser`, the same library Wrangler and VSCode use
+// internally), then assert structural property paths
+// (`config.build?.command`, `config.preview_urls`).
+//
+// Why a real parser, not regex stripping: the previous strip-
+// then-JSON.parse approach was not string-aware — a future entry
+// like `"command": "echo //hello"` or `"route": "https://x.dev/*/y"`
+// would have its plain-string `//`, `/* */`, or `,]` content
+// mangled before parsing. `jsonc-parser` tracks string vs comment
+// state and accepts every JSONC relaxation Wrangler does, so any
+// valid wrangler.jsonc edit parses correctly here.
+//
+// Property-path assertions (vs raw-text regex) also guarantee the
+// entry is at the *top level* — a future nested entry with the
+// same literal value cannot false-pass them.
 async function checkWranglerConfig(): Promise<void> {
   let raw = '';
   try {
@@ -330,21 +337,17 @@ async function checkWranglerConfig(): Promise<void> {
     return;
   }
 
-  // Strip block comments, then line comments (line-comment regex
-  // preserves `://` so URLs in strings don't get mangled — none
-  // today but the file could grow a `route` entry), then trailing
-  // commas before closing `}` or `]`.
-  const json = raw
-    .replace(/\/\*[\s\S]*?\*\//g, '')
-    .replace(/(^|[^:])\/\/.*$/gm, (_, lead) => lead)
-    .replace(/,(\s*[}\]])/g, '$1');
-
-  let config: { build?: { command?: string }; preview_urls?: boolean };
-  try {
-    config = JSON.parse(json);
-  } catch (error) {
+  const parseErrors: { error: number; offset: number; length: number }[] = [];
+  const config = parseJsonc(raw, parseErrors, {
+    allowTrailingComma: true,
+    disallowComments: false,
+  }) as { build?: { command?: string }; preview_urls?: boolean } | undefined;
+  if (parseErrors.length > 0 || config === undefined) {
+    const summary = parseErrors
+      .map((e) => `${printParseErrorCode(e.error)} at offset ${e.offset}`)
+      .join('; ');
     errors.push(
-      `wrangler.jsonc: failed to parse after JSONC normalization: ${(error as Error).message} — if this is a valid JSONC construct we don't yet handle, extend the strip in scripts/smoke-dist.ts checkWranglerConfig`,
+      `wrangler.jsonc: failed to parse: ${summary || 'returned undefined'} — fix the JSONC syntax`,
     );
     return;
   }

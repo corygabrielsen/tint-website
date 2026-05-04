@@ -90,7 +90,16 @@ Both `wrangler deploy` and `wrangler versions upload` invoke the build via [`wra
 
 ## Smoke test as executable spec
 
-[`scripts/smoke-dist.ts`](../scripts/smoke-dist.ts) runs against `dist/` after every build, locally and in CI. It is the on-disk contract for the invariants this document declares. Asserted:
+The smoke suite is two complementary files invoked by `npm run smoke` (which runs as the last step of `npm run check`). Both files are the on-disk contract for the invariants this document declares — every invariant marked "enforced by …" above has an assertion in one of them. Adding a new invariant means adding a `check(...)` call; removing one removes a guarantee.
+
+The split is by the kind of evidence each file consults:
+
+- [`scripts/smoke-dist.ts`](../scripts/smoke-dist.ts) — **static analysis on the build output and config files** (`dist/` + `wrangler.jsonc`).
+- [`scripts/smoke-worker.ts`](../scripts/smoke-worker.ts) — **behavioral tests on the Worker code** (imports `worker/index.ts`, mocks `globalThis.fetch`, `env.ASSETS`, and `ctx.waitUntil`, and exercises the Worker against canonical and preview hostnames).
+
+Together they cover the full surface — the Worker's runtime behavior cannot be verified statically without false-passing refactors that move a gate into a dead branch (Copilot caught exactly this on an earlier regex-only version), and the static build output cannot be verified by behavior tests.
+
+### `smoke-dist.ts` — static checks against `dist/` and `wrangler.jsonc`
 
 **Install widget** (`checkInstallWidget`)
 
@@ -124,7 +133,43 @@ Both `wrangler deploy` and `wrangler versions upload` invoke the build via [`wra
 - `dist/tint` does not exist (would shadow the Worker's `/tint` redirect via the assets binding).
 - `dist/CNAME` does not exist (GitHub-Pages-specific artifact; this site deploys to Workers).
 
-Adding a new invariant means adding a `check(...)` call. Removing a `check` removes a guarantee — review accordingly.
+**Wrangler config invariants** (`checkWranglerConfig`, parses `wrangler.jsonc` via `jsonc-parser`)
+
+- Top-level `build.command === "npm run check"` (deploy gate stays in sync with [`ci.yml`](../.github/workflows/ci.yml) via [`package.json`](../package.json)).
+- Top-level `preview_urls === true` (without it, preview hostnames return Cloudflare's "preview disabled" page after the next deploy).
+- Both assertions address structural property paths (not raw-text regex), so a literal in a comment or a same-named nested entry cannot false-pass.
+
+### `smoke-worker.ts` — behavioral tests against `worker/index.ts`
+
+Each contract verifies the **complete causal chain**, not just end-state — `assetCalls`, `waitUntilCalls`, and outbound `fetchCalls` are captured per-invocation, and a regression that produces the same end state via a different (incorrect) mechanism (e.g. a hand-written 404 instead of a fall-through to `env.ASSETS.fetch`) fails with a pinpoint message.
+
+**Canonical `/tint` contract** (`assertCanonicalTintContract`)
+
+- Every variant (path: `/tint`, `/tint/`; method: GET, HEAD; with and without query string) returns `302 → RELEASE_URL`.
+- ASSETS is not invoked.
+- GET fires `ctx.waitUntil` exactly once, which fires exactly one outbound POST to `https://plausible.io/api/event` with `Content-Type: application/json` and a payload containing `name`, `url`, `domain`, `props.country`.
+- HEAD does NOT fire `trackDownload` (HTTP semantics: link checkers, monitoring probes, social preview crawlers all use HEAD without fetching the binary).
+- Query strings are dropped from the Location header (the redirect target is fixed; `?utm_source=…` doesn't reach GitHub but also doesn't 404).
+- Inbound headers (`user-agent`, `cf-connecting-ip`, `cf-ipcountry`) forward intact onto the outbound POST as `User-Agent`, `X-Forwarded-For`, and `payload.props.country`. With no inbound headers, every axis falls back to its documented default (`'curl'`, `''`, `'unknown'`). Each axis is asserted independently — a remap regression on any one surfaces as a specific assertion failure naming the axis.
+
+**Preview `/tint` contract** (`assertPreviewTintContract`)
+
+- Every variant returns `404`, `Location` unset, `trackDownload` not fired, no outbound POST.
+- ASSETS is invoked exactly once with the original request URL and method (verifies the documented "fall through to env.ASSETS.fetch" behavior actually happens — a hand-written 404 short-circuit would change the response body and bypass the asset binding).
+
+**X-Robots-Tag contract** (asset responses across multiple content types)
+
+- Preview hostnames: every asset response (HTML, XML, plain text) carries `X-Robots-Tag: noindex, nofollow`. ASSETS is invoked exactly once.
+- Canonical host: the header is never set on any asset response. ASSETS is invoked exactly once.
+
+**Method gate**
+
+- Every non-GET/HEAD method on every host returns `405` with `Allow: GET, HEAD`.
+- ASSETS is NOT invoked (don't pay origin cost on disallowed methods); `trackDownload` is NOT fired.
+
+**Subpath fallthrough**
+
+- `/tint/foo` falls through to ASSETS exactly once with the original URL (the worker handles `/tint` and `/tint/` only, not arbitrary subpaths).
 
 ## DNS
 

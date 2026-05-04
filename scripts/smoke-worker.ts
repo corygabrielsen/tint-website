@@ -278,11 +278,20 @@ async function assertCanonicalTintContract(
 }
 
 // Full preview-/tint contract. Preview hostnames must never
-// redirect from /tint — the request falls through to ASSETS
-// (which 404s, since no static /tint file exists; smoke-dist's
+// redirect from /tint — the request must FALL THROUGH to ASSETS,
+// which then 404s (no static /tint file exists; smoke-dist's
 // `checkAbsent('tint')` enforces that). No Plausible event must
 // fire, because the canonical-host gate applies symmetrically
 // (preview hosts don't match `hostname === 'tint.sh'`).
+//
+// Critical: this contract verifies the COMPLETE causal chain, not
+// just the end-state 404. A regression that returns a hand-written
+// 404 before delegating to ASSETS would change the preview
+// response body and bypass any future asset-binding behavior
+// (caching headers, etag negotiation, range requests, etc.) while
+// still satisfying an end-state-only contract. The `assetCalls`
+// assertion catches that — it requires the worker's documented
+// "fall through to env.ASSETS.fetch" behavior to actually happen.
 async function assertPreviewTintContract(method: 'GET' | 'HEAD', url: string): Promise<void> {
   const label = `${method} ${url}`;
   const response = await call(method, url);
@@ -294,6 +303,27 @@ async function assertPreviewTintContract(method: 'GET' | 'HEAD', url: string): P
     response.headers.get('location') === null,
     `${label}: must not have a Location header, got ${response.headers.get('location')}`,
   );
+  // Causal-chain assertion: the documented preview behavior is
+  // "fall through to env.ASSETS.fetch", not "return a 404". A
+  // hand-written 404 short-circuit before ASSETS would pass an
+  // end-state-only check.
+  check(
+    assetCalls.length === 1,
+    `${label}: must invoke ASSETS exactly once (preview /tint must fall through to the asset binding, not be short-circuited), invoked ${assetCalls.length}x`,
+  );
+  if (assetCalls.length === 1) {
+    const assetCall = assetCalls[0];
+    if (assetCall) {
+      check(
+        assetCall.url === url,
+        `${label}: ASSETS must be invoked with the original request URL ${url}, got ${assetCall.url}`,
+      );
+      check(
+        assetCall.method === method,
+        `${label}: ASSETS must be invoked with the original request method ${method}, got ${assetCall.method}`,
+      );
+    }
+  }
   check(
     waitUntilCalls.length === 0,
     `${label}: must not fire trackDownload, fired ${waitUntilCalls.length}`,
@@ -366,6 +396,13 @@ await assertPreviewTintContract('GET', `${previewBase}/tint?utm_source=share&ref
 //     asset response, regardless of content type
 //   - canonical host MUST NOT emit it on any response
 //
+// Causal chain matters here too: every asset response must be
+// produced by a real ASSETS invocation, not a hand-written
+// short-circuit. A short-circuited 200 with a stub body would
+// satisfy a status-and-header-only check while bypassing the
+// asset binding entirely (losing whatever caching, etag, or
+// Content-Type behavior the binding contributes).
+//
 // Tested across multiple content types (HTML, XML, plain text)
 // because a regression that gates the header by content type
 // (e.g., HTML-only) would silently re-expose preview
@@ -374,31 +411,43 @@ await assertPreviewTintContract('GET', `${previewBase}/tint?utm_source=share&ref
 // be a bigger SEO leak than the HTML pages themselves.
 const noindexAssetPaths = ['/', '/sitemap-index.xml', '/robots.txt'];
 for (const path of noindexAssetPaths) {
-  // Preview must have noindex header.
-  const previewResponse = await call('GET', `${previewBase}${path}`);
+  // Preview: noindex header set, ASSETS invoked exactly once.
+  const previewUrl = `${previewBase}${path}`;
+  const previewResponse = await call('GET', previewUrl);
   check(
     previewResponse.status === 200,
-    `GET preview${path}: status ${previewResponse.status}, want 200`,
+    `GET ${previewUrl}: status ${previewResponse.status}, want 200`,
   );
   check(
     previewResponse.headers.get('x-robots-tag') === 'noindex, nofollow',
-    `GET preview${path}: X-Robots-Tag must be 'noindex, nofollow' on every preview asset response (regardless of content type), got ${JSON.stringify(previewResponse.headers.get('x-robots-tag'))}`,
+    `GET ${previewUrl}: X-Robots-Tag must be 'noindex, nofollow' on every preview asset response (regardless of content type), got ${JSON.stringify(previewResponse.headers.get('x-robots-tag'))}`,
+  );
+  check(
+    assetCalls.length === 1 && assetCalls[0]?.url === previewUrl,
+    `GET ${previewUrl}: must invoke ASSETS exactly once with the original URL (asset response must come from the binding, not a short-circuit), got ${assetCalls.length} call(s) (${assetCalls.map((c) => c.url).join(', ')})`,
   );
 
-  // Canonical must NOT have noindex header (would deindex tint.sh).
-  const canonicalResponse = await call('GET', `https://tint.sh${path}`);
+  // Canonical: no noindex header, ASSETS invoked exactly once.
+  const canonicalUrl = `https://tint.sh${path}`;
+  const canonicalResponse = await call('GET', canonicalUrl);
   check(
     canonicalResponse.status === 200,
-    `GET tint.sh${path}: status ${canonicalResponse.status}, want 200`,
+    `GET ${canonicalUrl}: status ${canonicalResponse.status}, want 200`,
   );
   check(
     canonicalResponse.headers.get('x-robots-tag') === null,
-    `GET tint.sh${path}: X-Robots-Tag must NOT be set on canonical host (would deindex tint.sh), got ${JSON.stringify(canonicalResponse.headers.get('x-robots-tag'))}`,
+    `GET ${canonicalUrl}: X-Robots-Tag must NOT be set on canonical host (would deindex tint.sh), got ${JSON.stringify(canonicalResponse.headers.get('x-robots-tag'))}`,
+  );
+  check(
+    assetCalls.length === 1 && assetCalls[0]?.url === canonicalUrl,
+    `GET ${canonicalUrl}: must invoke ASSETS exactly once with the original URL (asset response must come from the binding, not a short-circuit), got ${assetCalls.length} call(s) (${assetCalls.map((c) => c.url).join(', ')})`,
   );
 }
 
 // Site-wide method gate: non-GET/HEAD returns 405 with Allow header.
-// Same on every host (no per-host carve-out).
+// Same on every host (no per-host carve-out). Causal chain: 405 must
+// be produced WITHOUT touching the asset binding (otherwise origin /
+// CDN load is wasted on every scanner / abusive client).
 for (const host of ['tint.sh', 'feat-foo-tint-website.example.workers.dev']) {
   for (const method of ['POST', 'PUT', 'DELETE', 'PATCH']) {
     const response = await call(method, `https://${host}/`);
@@ -407,16 +456,31 @@ for (const host of ['tint.sh', 'feat-foo-tint-website.example.workers.dev']) {
       response.headers.get('allow') === 'GET, HEAD',
       `${method} ${host}/: Allow header should be 'GET, HEAD', got ${response.headers.get('allow')}`,
     );
+    check(
+      assetCalls.length === 0,
+      `${method} ${host}/: 405 must short-circuit before ASSETS (don't pay origin cost on disallowed methods), invoked ${assetCalls.length}x`,
+    );
+    check(
+      waitUntilCalls.length === 0,
+      `${method} ${host}/: 405 must not fire trackDownload (HEAD/GET gate already excludes this, but a regression gating only on path would re-introduce it), fired ${waitUntilCalls.length}`,
+    );
   }
 }
 
 // Subpaths under /tint fall through to ASSETS on canonical too — the
-// route handles only exactly /tint and /tint/, not /tint/foo.
+// route handles only exactly /tint and /tint/, not /tint/foo. Same
+// causal chain assertion as the preview-/tint contract: ASSETS must
+// actually be invoked, no short-circuit.
 {
-  const response = await call('GET', 'https://tint.sh/tint/foo');
+  const subpathUrl = 'https://tint.sh/tint/foo';
+  const response = await call('GET', subpathUrl);
   check(
     response.status === 404,
-    `GET tint.sh/tint/foo: subpath should fall through to ASSETS (404), got ${response.status}`,
+    `GET ${subpathUrl}: subpath should fall through to ASSETS (404), got ${response.status}`,
+  );
+  check(
+    assetCalls.length === 1 && assetCalls[0]?.url === subpathUrl,
+    `GET ${subpathUrl}: must invoke ASSETS exactly once with the original URL (subpath must fall through, not be short-circuited), got ${assetCalls.length} call(s) (${assetCalls.map((c) => c.url).join(', ')})`,
   );
   check(
     waitUntilCalls.length === 0,
