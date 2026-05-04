@@ -16,12 +16,37 @@ const installCommands = [
     code: `curl -fsSL ${repoUrl}/releases/latest/download/tint -o ~/.local/bin/tint && chmod +x ~/.local/bin/tint`,
   },
 ];
+
+// ANSI colors 0-15 from tint's built-in catppuccin-mocha theme.
+const themeColors = [
+  '#45475a',
+  '#f38ba8',
+  '#a6e3a1',
+  '#f9e2af',
+  '#89b4fa',
+  '#f5c2e7',
+  '#94e2d5',
+  '#bac2de',
+  '#585b70',
+  '#f38ba8',
+  '#a6e3a1',
+  '#f9e2af',
+  '#89b4fa',
+  '#f5c2e7',
+  '#94e2d5',
+  '#a6adc8',
+];
 ---
 
 <Layout title="tint - Terminal Theme Switcher">
   <main>
     <header>
       <h1>tint</h1>
+      <div class="theme-strip" aria-hidden="true">
+        {themeColors.map((color) => (
+          <span style={`background-color: ${color}`} />
+        ))}
+      </div>
       <p class="tagline">Terminal theme switcher.</p>
     </header>
 
