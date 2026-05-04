@@ -293,8 +293,15 @@ a:hover {
 }
 
 /* =============================================================================
-   6. Demo placeholder
+   6. Demo
    ========================================================================== */
+
+.demo {
+  width: 100%;
+  height: auto;
+  border: 1px solid var(--border);
+  image-rendering: -webkit-optimize-contrast;
+}
 
 .demo-placeholder {
   aspect-ratio: 16 / 9;
