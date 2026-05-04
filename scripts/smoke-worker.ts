@@ -179,26 +179,48 @@ async function call(method: string, url: string): Promise<Response> {
   );
 }
 
-// Preview-host /tint: must NOT redirect to GitHub. Falls through to
-// ASSETS, which 404s. This is the gate Copilot flagged in round 4 —
-// without it, preview traffic inflates GitHub's download_count.
-{
-  const response = await call('GET', 'https://feat-foo-tint-website.example.workers.dev/tint');
+// Preview-host /tint and /tint/: must NOT redirect to GitHub. Both
+// variants fall through to ASSETS, which 404s. The worker
+// special-cases BOTH /tint and /tint/ on the canonical side; the
+// preview gate must apply equally to both, otherwise a regression
+// that keeps the gate on /tint but forgets /tint/ would still
+// re-expose preview traffic to GitHub's download counter via the
+// trailing-slash variant.
+for (const path of ['/tint', '/tint/']) {
+  const url = `https://feat-foo-tint-website.example.workers.dev${path}`;
+  const response = await call('GET', url);
   check(
     response.status === 404,
-    `GET preview/tint: status ${response.status}, want 404 (preview hosts must not redirect)`,
+    `GET preview${path}: status ${response.status}, want 404 (preview hosts must not redirect)`,
   );
   check(
     response.headers.get('location') === null,
-    `GET preview/tint: must not have location header, got ${response.headers.get('location')}`,
+    `GET preview${path}: must not have location header, got ${response.headers.get('location')}`,
   );
   check(
     waitUntilCalls.length === 0,
-    `GET preview/tint: must not fire trackDownload, fired ${waitUntilCalls.length}`,
+    `GET preview${path}: must not fire trackDownload, fired ${waitUntilCalls.length}`,
   );
   check(
     fetchCalls.length === 0,
-    `GET preview/tint: must not POST to Plausible, posted ${fetchCalls.length}x`,
+    `GET preview${path}: must not POST to Plausible, posted ${fetchCalls.length}x`,
+  );
+}
+
+// Query strings on canonical /tint are silently accepted (no 404)
+// and dropped (Location is the bare RELEASE_URL, not RELEASE_URL +
+// query). Documented as a contract in worker/index.ts because
+// social-share / utm tracking parameters would otherwise 404.
+{
+  const response = await call('GET', 'https://tint.sh/tint?utm_source=share&ref=foo');
+  check(
+    response.status === 302,
+    `GET tint.sh/tint?...: status ${response.status}, want 302 (query strings must not 404)`,
+  );
+  check(
+    response.headers.get('location') ===
+      'https://github.com/corygabrielsen/tint/releases/latest/download/tint',
+    `GET tint.sh/tint?...: query must be dropped from Location, got ${response.headers.get('location')}`,
   );
 }
 

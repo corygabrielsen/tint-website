@@ -279,51 +279,6 @@ function checkInstallWidget(html: string): void {
 //
 // Run per-page (not once per build) because the failure mode is
 // "404.html lost the snippet during a layout refactor".
-// Static check on wrangler.jsonc: the two load-bearing entries that
-// nothing else in the pipeline detects the loss of. See call site
-// comment for the rationale.
-async function checkWranglerConfig(): Promise<void> {
-  let raw = '';
-  try {
-    raw = await readFile(new URL('../wrangler.jsonc', import.meta.url), 'utf8');
-  } catch (error) {
-    errors.push(describeFsFailure('read', 'wrangler.jsonc', error));
-    return;
-  }
-
-  // Strip line and block comments before JSON parsing. Wrangler's
-  // jsonc parser is lenient; ours needs to be just lenient enough.
-  const stripped = raw
-    .replace(/\/\*[\s\S]*?\*\//g, '')
-    .replace(/(^|[^:])\/\/.*$/gm, (_, lead) => lead);
-
-  let config: { build?: { command?: string }; preview_urls?: boolean };
-  try {
-    config = JSON.parse(stripped);
-  } catch (error) {
-    errors.push(
-      `wrangler.jsonc: failed to parse after comment-stripping: ${(error as Error).message}`,
-    );
-    return;
-  }
-
-  // build.command must reference the canonical script. The chain
-  // lives in package.json `check`; this assertion verifies wrangler
-  // calls into it rather than re-spelling it.
-  check(
-    config.build?.command === 'npm run check',
-    `wrangler.jsonc: build.command must be exactly "npm run check" (was: ${JSON.stringify(config.build?.command)}) — keeps the deploy gate in sync with .github/workflows/ci.yml via package.json`,
-  );
-
-  // preview_urls must be true so per-PR preview hostnames actually
-  // serve the deployed Worker version. If removed, the next deploy
-  // silently disables previews; nothing else in the pipeline notices.
-  check(
-    config.preview_urls === true,
-    `wrangler.jsonc: preview_urls must be true (was: ${JSON.stringify(config.preview_urls)}) — without it, preview hostnames return Cloudflare's "preview disabled" page after deploy`,
-  );
-}
-
 function checkPlausibleSnippet(html: string, sourcePath: string): void {
   const scripts = [...html.matchAll(/<script\b[^>]*>([\s\S]*?)<\/script>/g)].map((m) => m[1] ?? '');
   const requirements: Array<[name: string, pattern: RegExp]> = [
@@ -350,6 +305,45 @@ function checkPlausibleSnippet(html: string, sourcePath: string): void {
       `${sourcePath}: no inline <script> contains a complete Plausible snippet; missing in any script: ${missing.join(', ')}`,
     );
   }
+}
+
+// Static check on wrangler.jsonc: the two load-bearing entries
+// that nothing else in the pipeline detects the loss of. See call
+// site comment for the rationale.
+//
+// We deliberately don't JSON-parse the file. Wrangler accepts
+// JSONC (line + block comments AND trailing commas), and writing
+// a strict-enough parser to handle every relaxation without false
+// rejections — particularly trailing commas — needs either a real
+// JSONC parser dep or fragile regex. Since we only need to verify
+// two specific entries are present and unchanged, raw-text regex
+// on the literal lines is both simpler and immune to JSONC
+// formatting variations (trailing commas, multiline values,
+// adjacent comments, etc.).
+async function checkWranglerConfig(): Promise<void> {
+  let raw = '';
+  try {
+    raw = await readFile(new URL('../wrangler.jsonc', import.meta.url), 'utf8');
+  } catch (error) {
+    errors.push(describeFsFailure('read', 'wrangler.jsonc', error));
+    return;
+  }
+
+  // build.command must reference the canonical script. The chain
+  // lives in package.json `check`; this assertion verifies wrangler
+  // calls into it rather than re-spelling it.
+  check(
+    /"command"\s*:\s*"npm run check"/.test(raw),
+    'wrangler.jsonc: build.command must be exactly "npm run check" — keeps the deploy gate in sync with .github/workflows/ci.yml via package.json',
+  );
+
+  // preview_urls must be true so per-PR preview hostnames actually
+  // serve the deployed Worker version. If removed, the next deploy
+  // silently disables previews; nothing else in the pipeline notices.
+  check(
+    /"preview_urls"\s*:\s*true/.test(raw),
+    'wrangler.jsonc: "preview_urls": true must be present — without it, preview hostnames return Cloudflare\'s "preview disabled" page after deploy',
+  );
 }
 
 const html = await readDistFile('index.html');
