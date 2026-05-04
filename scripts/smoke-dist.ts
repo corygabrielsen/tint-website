@@ -1,4 +1,5 @@
 import { readFile, stat } from 'node:fs/promises';
+import { parse as parseJsonc, printParseErrorCode } from 'jsonc-parser';
 
 const dist = new URL('../dist/', import.meta.url);
 const errors: string[] = [];
@@ -307,6 +308,69 @@ function checkPlausibleSnippet(html: string, sourcePath: string): void {
   }
 }
 
+// Static check on wrangler.jsonc: the two load-bearing entries
+// that nothing else in the pipeline detects the loss of. See call
+// site comment for the rationale.
+//
+// Approach: parse the JSONC with the canonical parser
+// (`jsonc-parser`, the same library Wrangler and VSCode use
+// internally), then assert structural property paths
+// (`config.build?.command`, `config.preview_urls`).
+//
+// Why a real parser, not regex stripping: the previous strip-
+// then-JSON.parse approach was not string-aware — a future entry
+// like `"command": "echo //hello"` or `"route": "https://x.dev/*/y"`
+// would have its plain-string `//`, `/* */`, or `,]` content
+// mangled before parsing. `jsonc-parser` tracks string vs comment
+// state and accepts every JSONC relaxation Wrangler does, so any
+// valid wrangler.jsonc edit parses correctly here.
+//
+// Property-path assertions (vs raw-text regex) also guarantee the
+// entry is at the *top level* — a future nested entry with the
+// same literal value cannot false-pass them.
+async function checkWranglerConfig(): Promise<void> {
+  let raw = '';
+  try {
+    raw = await readFile(new URL('../wrangler.jsonc', import.meta.url), 'utf8');
+  } catch (error) {
+    errors.push(describeFsFailure('read', 'wrangler.jsonc', error));
+    return;
+  }
+
+  const parseErrors: { error: number; offset: number; length: number }[] = [];
+  const config = parseJsonc(raw, parseErrors, {
+    allowTrailingComma: true,
+    disallowComments: false,
+  }) as { build?: { command?: string }; preview_urls?: boolean } | undefined;
+  if (parseErrors.length > 0 || config === undefined) {
+    const summary = parseErrors
+      .map((e) => `${printParseErrorCode(e.error)} at offset ${e.offset}`)
+      .join('; ');
+    errors.push(
+      `wrangler.jsonc: failed to parse: ${summary || 'returned undefined'} — fix the JSONC syntax`,
+    );
+    return;
+  }
+
+  // build.command must reference the canonical script. The chain
+  // lives in package.json `check`; this property-path assertion
+  // verifies the *top-level* build.command (not just any literal
+  // appearance somewhere in the file).
+  check(
+    config.build?.command === 'npm run check',
+    `wrangler.jsonc: top-level build.command must be exactly "npm run check" (got ${JSON.stringify(config.build?.command)}) — keeps the deploy gate in sync with .github/workflows/ci.yml via package.json`,
+  );
+
+  // preview_urls must be true at the top level so per-PR preview
+  // hostnames actually serve the deployed Worker version. If
+  // removed or set to false, the next deploy silently disables
+  // previews; nothing else in the pipeline notices.
+  check(
+    config.preview_urls === true,
+    `wrangler.jsonc: top-level "preview_urls" must be true (got ${JSON.stringify(config.preview_urls)}) — without it, preview hostnames return Cloudflare's "preview disabled" page after deploy`,
+  );
+}
+
 const html = await readDistFile('index.html');
 const notFoundHtml = await readDistFile('404.html');
 const videoSrc = extractVideoSrc(html);
@@ -346,6 +410,33 @@ await checkNonEmptyFile('sitemap-index.xml');
 // binding and never reach the handler. Add an entry here for every
 // future `/foo` route the Worker grows.
 await checkAbsent('tint');
+
+// Worker hostname-gate guards (the per-surface invariants that
+// protect production-only side effects from firing on preview
+// hostnames) are validated by behavior testing in
+// scripts/smoke-worker.ts — `npm run smoke` runs that file
+// immediately after this one. Static-source checks for these gates
+// were tried and rejected: any regex tight enough to actually catch
+// the "guard exists but doesn't gate" refactor was either fragile
+// or required a real parser. Behavior tests have neither problem.
+
+// Wrangler config invariants. wrangler.jsonc holds two pieces of
+// load-bearing config that nothing else in the pipeline can detect
+// the loss of:
+//   - build.command runs the CI gate before any wrangler deploy /
+//     versions upload. If it's emptied or changed away from the
+//     canonical script, deploys race to production without the
+//     gate. The chain itself lives behind `npm run check` so that
+//     wrangler.jsonc and .github/workflows/ci.yml share one source
+//     of truth — verifying the *reference* here is sufficient
+//     because the chain definition is in package.json (covered by
+//     standard JSON schema enforcement).
+//   - preview_urls: true is what makes per-PR preview hostnames
+//     actually serve the deployed Worker version. If it's removed,
+//     every preview URL starts returning Cloudflare's "preview
+//     disabled" page. Nothing else in the build or smoke pipeline
+//     would notice; the deploy still succeeds.
+await checkWranglerConfig();
 
 // Dead-artifact guard. `CNAME` is GitHub-Pages-specific machinery
 // (tells Pages which custom domain to serve at). This site deploys to

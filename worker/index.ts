@@ -1,16 +1,44 @@
 // Cloudflare Worker entrypoint for tint.sh.
 //
-// Routes:
-//   /tint, /tint/   302 → GitHub release asset (URL below).
-//                   The redirect target is `releases/latest/download/`,
-//                   which GitHub itself 302s to the active asset; that
-//                   second hop is what increments `download_count`.
-//   *               env.ASSETS.fetch — the Astro build in dist/.
+// Two response surfaces:
+//   tint.sh                              — canonical production
+//   <alias>-tint-website.<sub>.workers.dev — per-PR previews
 //
-// Plausible receives a `tint_download` event on /tint hits; pageview
-// events come from the client snippet in src/layouts/Layout.astro.
+// Both run identical Worker code, so any behavior with an externally
+// observable side effect on tint.sh must be gated on the canonical
+// hostname; otherwise preview traffic skews production metrics. The
+// gates today: the /tint → GitHub redirect (skews GitHub's
+// download_count), the Plausible events (skew the dashboard), and
+// the search-indexability signal (X-Robots-Tag, prevents preview
+// hosts from ranking as duplicate content of tint.sh).
+//
+// Routes:
+//   /tint, /tint/        302 → GitHub release asset (canonical only).
+//                        Target is `releases/latest/download/`,
+//                        which GitHub itself 302s to the active
+//                        asset; the second hop is what increments
+//                        download_count.
+//   *                    env.ASSETS.fetch — the Astro build in dist/.
 
 const RELEASE_URL = 'https://github.com/corygabrielsen/tint/releases/latest/download/tint';
+
+// CANONICAL_HOST and PLAUSIBLE_DOMAIN are deliberately separate
+// constants even though both equal 'tint.sh' today. They name two
+// different concerns:
+//   - CANONICAL_HOST: hostname routing — which incoming hostname
+//     counts as the production surface. Controls the /tint
+//     redirect, X-Robots-Tag injection, and the server-side
+//     Plausible event gate. Changing this changes *behavior*.
+//   - PLAUSIBLE_DOMAIN: the dashboard identifier registered with
+//     Plausible. Sent in the event payload's `domain` field;
+//     Plausible uses it to attribute events to the right
+//     dashboard. Changing this changes *attribution*.
+// They could legitimately diverge (e.g., if Plausible were
+// reconfigured under a different dashboard name without changing
+// what host we serve). Conflating them under a single name
+// invites a future refactor to accidentally change one when
+// editing the other.
+const CANONICAL_HOST = 'tint.sh';
 const PLAUSIBLE_DOMAIN = 'tint.sh';
 const PLAUSIBLE_EVENT_URL = 'https://plausible.io/api/event';
 
@@ -39,7 +67,15 @@ async function trackDownload(request: Request): Promise<void> {
       },
       body: JSON.stringify({
         name: 'tint_download',
-        url: `https://${PLAUSIBLE_DOMAIN}/tint`,
+        // Each field sources from the constant whose concern it
+        // describes: `url` is the canonical-host URL where the
+        // event happened (a routing concern); `domain` is the
+        // Plausible dashboard identifier the event is attributed
+        // to (an attribution concern). They equal each other today
+        // because both constants equal 'tint.sh', but if Plausible
+        // were ever reconfigured under a different dashboard name,
+        // the event URL would still reflect the real request host.
+        url: `https://${CANONICAL_HOST}/tint`,
         domain: PLAUSIBLE_DOMAIN,
         props: { country: request.headers.get('cf-ipcountry') ?? 'unknown' },
       }),
@@ -66,35 +102,56 @@ export default {
     }
 
     const url = new URL(request.url);
+    const isCanonical = url.hostname === CANONICAL_HOST;
 
-    // Match `/tint` and `/tint/` (forgive a trailing slash). Query
-    // strings are accepted and silently dropped — RELEASE_URL is fixed,
-    // so `?utm_source=...` and similar tracking params don't propagate
-    // to GitHub but also don't cause a 404 (which would be hostile to
+    // /tint short URL → 302 to the GitHub release asset, canonical
+    // host only. Preview hostnames fall through to the asset binding,
+    // which 404s (no static dist/tint file exists; smoke-dist
+    // enforces that). Gating here — rather than on the analytics
+    // event alone — keeps preview traffic from inflating GitHub's
+    // per-asset download_count above the Plausible event count.
+    //
+    // Trailing slash forgiven; query strings accepted and silently
+    // dropped (RELEASE_URL is fixed, so e.g. `?utm_source=…` doesn't
+    // reach GitHub but also doesn't 404, which would be hostile to
     // social links). Subpaths like `/tint/foo` fall through to ASSETS.
-    if (url.pathname === '/tint' || url.pathname === '/tint/') {
+    if (isCanonical && (url.pathname === '/tint' || url.pathname === '/tint/')) {
       // Track only on GET. HEAD must still redirect (HTTP semantics:
       // same headers as GET, no body) but doesn't represent a real
       // download — link checkers, monitoring probes, and social-media
       // preview crawlers use HEAD without fetching the binary, and
-      // GitHub's `download_count` only increments on the GET that
-      // actually pulls bytes. Firing `tint_download` on HEAD would
+      // GitHub's download_count only increments on the GET that
+      // actually pulls bytes. Firing tint_download on HEAD would
       // skew the dashboard above GitHub's counter.
       //
-      // Hostname gate: only `tint.sh` traffic counts. The redirect
-      // still works on *.workers.dev / preview hosts so the handler
-      // can be exercised end-to-end, but Plausible only sees
-      // production hits. Symmetric client-side gate lives in
-      // src/layouts/Layout.astro.
-      if (request.method === 'GET' && url.hostname === PLAUSIBLE_DOMAIN) {
-        // waitUntil keeps the invocation alive until the POST settles;
-        // otherwise the runtime cancels the in-flight fetch as soon as
-        // the redirect returns, undercounting events under load.
+      // waitUntil keeps the invocation alive until the POST settles;
+      // otherwise the runtime cancels the in-flight fetch as soon as
+      // the redirect returns, undercounting events under load.
+      if (request.method === 'GET') {
         ctx.waitUntil(trackDownload(request));
       }
       return Response.redirect(RELEASE_URL, 302);
     }
 
-    return env.ASSETS.fetch(request);
+    const response = await env.ASSETS.fetch(request);
+
+    // Non-canonical hosts (preview deployments at *.workers.dev) host
+    // byte-for-byte identical HTML to production. Without a
+    // search-engine signal saying "don't index me," Google could
+    // index preview URLs as duplicate content of tint.sh and rank a
+    // preview above the canonical site. X-Robots-Tag is preferred
+    // over <meta name="robots"> because it requires no per-page
+    // render-time logic and is invisible to humans loading the page.
+    if (!isCanonical) {
+      const headers = new Headers(response.headers);
+      headers.set('X-Robots-Tag', 'noindex, nofollow');
+      return new Response(response.body, {
+        status: response.status,
+        statusText: response.statusText,
+        headers,
+      });
+    }
+
+    return response;
   },
 };

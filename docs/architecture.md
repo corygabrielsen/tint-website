@@ -9,28 +9,34 @@ Invariants marked **(out-of-band)** describe state that lives outside this repo 
 ## Topology
 
 ```
-git push master
-       │
-       ▼
-GitHub Action (.github/workflows/deploy.yml)
-  ├─ npm ci
-  ├─ biome check
-  ├─ astro check
-  ├─ astro build         →  dist/
-  ├─ tsx scripts/smoke-dist.ts
-  └─ wrangler deploy
-       │
-       ▼
-Cloudflare Worker (worker/index.ts)
-  ├─ /tint, /tint/   →  302 → GitHub Releases  →  download_count++
-  │                   └─ tint_download (GET, hostname-gated)  →  plausible.io
-  └─ *               →  env.ASSETS.fetch (dist/)
-                          (HTML carries a hostname-gated client snippet
-                           that fires pageview events to plausible.io)
+git push master                git push <feature-branch>  +  PR open
+       │                                       │
+       ▼                                       ▼
+Cloudflare Workers Builds            Cloudflare Workers Builds
+  npx wrangler deploy                  npx wrangler versions upload
+  └─ build.command:                    └─ build.command:
+       npm run check                        npm run check
+       (typecheck + lint + build +          (single source of truth
+        smoke-dist + smoke-worker)           in package.json)
+       │                                       │
+       ▼                                       ▼
+Cloudflare Worker (production)        Worker version (preview alias)
+  worker/index.ts                       <alias>-tint-website
+  ├─ /tint    →  302 → GitHub Releases     .<subdomain>.workers.dev
+  │            └─ tint_download (GET)    │  Same Worker code, different
+  │                  →  plausible.io      │  hostname. Per-surface gates
+  └─ *        →  env.ASSETS.fetch (dist/) │  in worker/index.ts apply:
+                                          │   • /tint 404s (fallthrough)
+                                          │   • tint_download suppressed
+                                          │   • pageviews suppressed
+                                          │   • X-Robots-Tag: noindex
+                                          │  on every asset response.
        │
        ▼
 tint.sh  (Cloudflare-managed DNS, Worker custom domain)
 ```
+
+Both `wrangler deploy` and `wrangler versions upload` invoke the build via [`wrangler.jsonc`](../wrangler.jsonc) `build.command`, which calls `npm run check` — the single source of truth for the validation chain (defined in [`package.json`](../package.json)). GitHub Actions runs the identical `npm run check` on every PR via [`ci.yml`](../.github/workflows/ci.yml) as a fast, independent PR check; it does not deploy.
 
 ## Hosting
 
@@ -41,9 +47,10 @@ tint.sh  (Cloudflare-managed DNS, Worker custom domain)
 ## Routing ([`worker/index.ts`](../worker/index.ts))
 
 - **Method gate is site-wide.** Methods other than `GET` and `HEAD` return `405 Method Not Allowed` with `Allow: GET, HEAD`. Enforced before any route matching.
-- **`/tint` and `/tint/` redirect.** 302 to `https://github.com/corygabrielsen/tint/releases/latest/download/tint`. The trailing-slash variant exists to forgive copy-paste artifacts.
+- **`/tint` and `/tint/` redirect on canonical host only.** 302 to `https://github.com/corygabrielsen/tint/releases/latest/download/tint`. The trailing-slash variant exists to forgive copy-paste artifacts. The route is gated on `url.hostname === CANONICAL_HOST` (== `'tint.sh'`); on preview hostnames the request falls through to the asset binding (and 404s, since no static `/tint` file exists). Without this gate, preview traffic would 302 to GitHub and inflate the per-asset `download_count` while the matching Plausible `tint_download` event stays correctly suppressed — the two analytics surfaces would drift apart. Enforced by [`scripts/smoke-worker.ts`](../scripts/smoke-worker.ts) (behavior test that exercises the Worker against canonical and preview hostnames).
 - **Query strings on `/tint` are silently dropped.** The redirect target is fixed; `?utm_source=...` and similar tracking parameters are accepted (no 404, which would be hostile to social links) but are not forwarded to GitHub.
 - **`/tint` redirect target preserves `download_count`.** **(out-of-band: depends on GitHub.)** The target is `releases/latest/download/<asset>`, which GitHub itself 302s to the active release asset. The second hop is what increments the per-asset counter. Verify by: hit `/tint` with `curl -L`, then check the GitHub release page's download count incremented.
+- **Non-canonical hosts emit `X-Robots-Tag: noindex, nofollow`.** Every asset response served on a hostname other than `CANONICAL_HOST` has the header appended in [`worker/index.ts`](../worker/index.ts). Without it, search engines could index preview URLs as duplicate content of `tint.sh` and rank a preview above the canonical site. The HTTP header is preferred over a `<meta name="robots">` tag because it requires no per-page render-time logic, applies uniformly to every response (HTML, sitemap, etc.), and is invisible to humans. Enforced by [`scripts/smoke-worker.ts`](../scripts/smoke-worker.ts) (behavior test that asserts the header is present on preview hosts and absent on the canonical host).
 - **Fallthrough.** All other paths (including subpaths like `/tint/foo`) delegate to the static assets binding. No path-based routing tables.
 
 ## Analytics
@@ -52,7 +59,7 @@ tint.sh  (Cloudflare-managed DNS, Worker custom domain)
 - **Two channels.** Client-side pageviews (snippet in [`src/layouts/Layout.astro`](../src/layouts/Layout.astro)) and server-side custom events (`tint_download` from [`worker/index.ts`](../worker/index.ts)).
 - **Hostname-gated to `tint.sh` on both channels.** The Plausible bundle auto-fires a pageview at script load, so the client gate must prevent the bundle from loading at all — gating only `plausible.init()` would not work. The server gate must precede the `fetch` to Plausible.
 - **Server-side observability events fire only on the request shape that matches the user-action being measured.** A side-effect must be gated to fire only when the request actually represents the recorded action — not merely when the route accepts it. For `tint_download`: `GET /tint` only. HEAD still receives the redirect (per HTTP semantics) but does not fire an event, because link checkers, monitoring probes, and social preview crawlers use HEAD without fetching the binary, and GitHub's `download_count` only increments on the GET that pulls bytes. New side-effects added to the Worker MUST be gated by the same principle.
-- **Server events forward client identity.** UA, `cf-connecting-ip`, and `cf-ipcountry` are forwarded so Plausible's standard browser / OS / country / unique-visitor breakdowns work for `tint_download` the same way they work for client pageviews.
+- **Server events forward client identity.** UA, `cf-connecting-ip`, and `cf-ipcountry` are forwarded so Plausible's standard browser / OS / country / unique-visitor breakdowns work for `tint_download` the same way they work for client pageviews. Each of the three forwarding axes is asserted independently by [`scripts/smoke-worker.ts`](../scripts/smoke-worker.ts), against both the present-headers path (every header forwards intact) and the absent-headers path (every header falls back to its documented default). A regression that remaps one to the wrong inbound name (e.g. `cf-country` instead of `cf-ipcountry`) surfaces as a pinpoint failure naming the specific axis.
 - **Server events use `ctx.waitUntil`.** Without it the runtime cancels the in-flight POST as soon as the redirect returns, undercounting events under load.
 - **Analytics failures are silent.** The `trackDownload` catch is empty by design: a Plausible outage must not deny users their download.
 - **Snippet completeness is enforced by the smoke test.** [`scripts/smoke-dist.ts`](../scripts/smoke-dist.ts) `checkPlausibleSnippet` requires bundle URL stem, `plausible.init()` call, and the `tint.sh` hostname gate to all live in the _same_ inline `<script>` body — see § Smoke test as executable spec.
@@ -63,14 +70,36 @@ tint.sh  (Cloudflare-managed DNS, Worker custom domain)
 
 ## Deploy pipeline
 
-- **Single deploy path.** **(out-of-band)** [`.github/workflows/deploy.yml`](../.github/workflows/deploy.yml) is the only writer to the Cloudflare Worker. Cloudflare's built-in Git auto-deploy stays disabled to prevent it racing the Action. Verify by: in the Cloudflare dashboard for this Worker, check that the "Builds" / "Git integration" tab shows no connected repository.
-- **Deploy is gated on full CI.** Lint, typecheck, build, and smoke test all run in the deploy job before `wrangler deploy`. A failed smoke test fails the deploy.
-- **Required repo secrets.** `CLOUDFLARE_API_TOKEN` (Workers Scripts: Edit, all zones from the account) and `CLOUDFLARE_ACCOUNT_ID`.
-- **Rollback.** `npx wrangler rollback` from a checkout authenticated against the account, or via the Cloudflare dashboard's deployments list.
+- **Single automated deploy path.** **(out-of-band)** Cloudflare Workers Builds is the only automated deployer — both for production (master) and per-PR previews. There is no GitHub Action deploy job and no automation in this repo consumes `CLOUDFLARE_API_TOKEN`. Adding a second _automated_ deployer (e.g., a re-introduced GitHub Action that calls `wrangler deploy`) would race Builds and is forbidden. Verify by: in the Cloudflare dashboard for this Worker, the "Settings → Build" panel shows this repository connected; no `.github/workflows/deploy.yml` exists in the repo.
+- **CI gate is wrangler-side, not CI-side.** [`wrangler.jsonc`](../wrangler.jsonc) `build.command` runs `npm run check` — the single source of truth for the validation chain (typecheck + lint + build + smoke; defined in [`package.json`](../package.json)). Wrangler executes it before any rebuilding command (e.g. `wrangler deploy`, `wrangler versions upload`), whether triggered by Builds or by an operator from a local checkout. A failure aborts the wrangler invocation that triggered it. No rebuilding path via wrangler skips this gate. (Rollback paths skip it; see the next bullet.)
+- **`build.command` and `preview_urls` are smoke-enforced.** [`scripts/smoke-dist.ts`](../scripts/smoke-dist.ts) `checkWranglerConfig` parses [`wrangler.jsonc`](../wrangler.jsonc) and asserts `build.command === "npm run check"` and `preview_urls === true`. Either silently changing breaks deploys (a different `build.command` would deploy without the gate; removing `preview_urls` would silently disable preview URLs after the next deploy) — both regressions fail the smoke gate, which fails the deploy.
+- **Operator escape hatches.** `wrangler rollback` from an authenticated checkout, and the Cloudflare dashboard's rollback / "promote previous version" actions, write to production by reusing a previously-deployed version's bytes. They do not rebuild and therefore do not run the wrangler `build.command` gate. The trade-off is deliberate: rollback prioritizes speed-to-known-good-state over re-validation, on the operational assumption that a version that ran in production previously is recoverable code rather than novel code. (Note: versions deployed before this gate was introduced are still in the rollback list and never passed `build.command`. The first few rollback targets after this PR ships have that asterisk on them; subsequent rollback targets all came through the gate.) Use during incidents only.
+- **Independent PR check.** [`.github/workflows/ci.yml`](../.github/workflows/ci.yml) calls the same `npm run check` on every PR via GitHub Actions. Strictly redundant with the wrangler gate; kept for fast PR feedback (no Cloudflare Builds provisioning latency) and for catching environment-specific issues that only manifest on GitHub's runners.
+- **Production deploy command.** **(out-of-band)** Default `npx wrangler deploy`. Set in the Cloudflare Builds dashboard under "Build configuration → Deploy command." Verify by: dashboard shows this exact command.
+- **Preview deploy command.** **(out-of-band)** Default `npx wrangler versions upload`. Cloudflare Builds runs this for every non-production branch with an open PR; the resulting alias URL is posted as a PR comment by Cloudflare's GitHub App.
+
+## Preview deployments
+
+- **One alias per PR branch.** **(out-of-band, Cloudflare-managed)** Each PR commit triggers a Workers Builds build. On success it uploads a new Worker version aliased to a sanitized form of the branch name. The hostname has the shape `<alias>-tint-website.<subdomain>.workers.dev`, where Cloudflare derives `<alias>` from the branch name under the constraints below. The alias is stable across pushes to the same branch, so a phone-side bookmark survives every commit on that PR. **The canonical URL for any given PR is the one Cloudflare's GitHub App posts as a sticky PR comment** — Cloudflare's branch-to-alias derivation is partially undocumented (the public docs say "uses actual branch name as is" while also requiring aliases to satisfy the charset rules below, so an unspecified sanitization step bridges the gap), and reconstructing the URL from a formula here is brittle; trust the comment.
+- **Alias constraints (Cloudflare-published).** Lowercase letters, digits, and dashes only; must begin with a lowercase letter; alias + worker name + dash ≤ 63 characters (DNS label limit). Branches whose names exceed the limit get truncated with a 4-character hash suffix per Cloudflare's [Aug 2025 long-name update](https://developers.cloudflare.com/changelog/post/2025-08-08-support-long-branch-names-preview-aliases/). [`CONTRIBUTING.md`](../CONTRIBUTING.md) requires branch names of the form `<type>/<short-description>`, so every valid branch in this repo contains a `/` that Cloudflare must sanitize before the alias is valid; the exact transform is not part of this contract.
+- **Preview URLs require [`preview_urls: true`](../wrangler.jsonc).** Wrangler 4.34+ defaults this off; without it, alias URLs return Cloudflare's "preview disabled" page even after a successful upload.
+- **Previews bypass production.** A `wrangler versions upload` does not promote the version to the active deployment slot. Production at `tint.sh` continues serving the previous deploy until master receives a push and `wrangler deploy` runs.
+- **Production-only behaviors auto-exclude previews.** The same `url.hostname === 'tint.sh'` gate appears on every behavior whose externally-observable side effect should fire on the canonical surface only — Plausible client pageviews, server `tint_download` events, the `/tint` → GitHub redirect, and the absence of `X-Robots-Tag`. Preview hostnames don't match any of those gates, so previews can't pollute the Plausible dashboard, can't inflate GitHub's `download_count`, and can't be indexed by search engines as duplicate content. This is the same gate that excludes `astro dev` from analytics. See § Routing for the per-gate detail and the smoke-test enforcement.
+- **Limit.** Cloudflare retains the 1000 most-recently-deployed aliases per Worker. We have one alias per open + recently-merged PR; the cap is unreachable in practice. Closed-PR aliases stay accessible until evicted, which is a feature (revisiting an old PR's preview is free).
+- **Custom-domain previews are not supported.** **(Cloudflare beta limitation.)** Previews live only on `*.workers.dev`. There is no `pr-N.preview.tint.sh` today.
 
 ## Smoke test as executable spec
 
-[`scripts/smoke-dist.ts`](../scripts/smoke-dist.ts) runs against `dist/` after every build, locally and in CI. It is the on-disk contract for the invariants this document declares. Asserted:
+The smoke suite is two complementary files invoked by `npm run smoke` (which runs as the last step of `npm run check`). Both files are the on-disk contract for the invariants this document declares — every invariant marked "enforced by …" above has an assertion in one of them. Adding a new invariant means adding a `check(...)` call; removing one removes a guarantee.
+
+The split is by the kind of evidence each file consults:
+
+- [`scripts/smoke-dist.ts`](../scripts/smoke-dist.ts) — **static analysis on the build output and config files** (`dist/` + `wrangler.jsonc`).
+- [`scripts/smoke-worker.ts`](../scripts/smoke-worker.ts) — **behavioral tests on the Worker code** (imports `worker/index.ts`, mocks `globalThis.fetch`, `env.ASSETS`, and `ctx.waitUntil`, and exercises the Worker against canonical and preview hostnames).
+
+Together they cover the full surface — the Worker's runtime behavior cannot be verified statically without false-passing refactors that move a gate into a dead branch (Copilot caught exactly this on an earlier regex-only version), and the static build output cannot be verified by behavior tests.
+
+### `smoke-dist.ts` — static checks against `dist/` and `wrangler.jsonc`
 
 **Install widget** (`checkInstallWidget`)
 
@@ -104,7 +133,43 @@ tint.sh  (Cloudflare-managed DNS, Worker custom domain)
 - `dist/tint` does not exist (would shadow the Worker's `/tint` redirect via the assets binding).
 - `dist/CNAME` does not exist (GitHub-Pages-specific artifact; this site deploys to Workers).
 
-Adding a new invariant means adding a `check(...)` call. Removing a `check` removes a guarantee — review accordingly.
+**Wrangler config invariants** (`checkWranglerConfig`, parses `wrangler.jsonc` via `jsonc-parser`)
+
+- Top-level `build.command === "npm run check"` (deploy gate stays in sync with [`ci.yml`](../.github/workflows/ci.yml) via [`package.json`](../package.json)).
+- Top-level `preview_urls === true` (without it, preview hostnames return Cloudflare's "preview disabled" page after the next deploy).
+- Both assertions address structural property paths (not raw-text regex), so a literal in a comment or a same-named nested entry cannot false-pass.
+
+### `smoke-worker.ts` — behavioral tests against `worker/index.ts`
+
+Each contract verifies the **complete causal chain**, not just end-state — `assetCalls`, `waitUntilCalls`, and outbound `fetchCalls` are captured per-invocation, and a regression that produces the same end state via a different (incorrect) mechanism (e.g. a hand-written 404 instead of a fall-through to `env.ASSETS.fetch`) fails with a pinpoint message.
+
+**Canonical `/tint` contract** (`assertCanonicalTintContract`)
+
+- Every variant (path: `/tint`, `/tint/`; method: GET, HEAD; with and without query string) returns `302 → RELEASE_URL`.
+- ASSETS is not invoked.
+- GET fires `ctx.waitUntil` exactly once, which fires exactly one outbound POST to `https://plausible.io/api/event` with `Content-Type: application/json` and a payload containing `name`, `url`, `domain`, `props.country`.
+- HEAD does NOT fire `trackDownload` (HTTP semantics: link checkers, monitoring probes, social preview crawlers all use HEAD without fetching the binary).
+- Query strings are dropped from the Location header (the redirect target is fixed; `?utm_source=…` doesn't reach GitHub but also doesn't 404).
+- Inbound headers (`user-agent`, `cf-connecting-ip`, `cf-ipcountry`) forward intact onto the outbound POST as `User-Agent`, `X-Forwarded-For`, and `payload.props.country`. With no inbound headers, every axis falls back to its documented default (`'curl'`, `''`, `'unknown'`). Each axis is asserted independently — a remap regression on any one surfaces as a specific assertion failure naming the axis.
+
+**Preview `/tint` contract** (`assertPreviewTintContract`)
+
+- Every variant returns `404`, `Location` unset, `trackDownload` not fired, no outbound POST.
+- ASSETS is invoked exactly once with the original request URL and method (verifies the documented "fall through to env.ASSETS.fetch" behavior actually happens — a hand-written 404 short-circuit would change the response body and bypass the asset binding).
+
+**X-Robots-Tag contract** (asset responses across multiple content types)
+
+- Preview hostnames: every asset response (HTML, XML, plain text) carries `X-Robots-Tag: noindex, nofollow`. ASSETS is invoked exactly once.
+- Canonical host: the header is never set on any asset response. ASSETS is invoked exactly once.
+
+**Method gate**
+
+- Every non-GET/HEAD method on every host returns `405` with `Allow: GET, HEAD`.
+- ASSETS is NOT invoked (don't pay origin cost on disallowed methods); `trackDownload` is NOT fired.
+
+**Subpath fallthrough**
+
+- `/tint/foo` falls through to ASSETS exactly once with the original URL (the worker handles `/tint` and `/tint/` only, not arbitrary subpaths).
 
 ## DNS
 

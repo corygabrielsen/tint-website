@@ -22,14 +22,9 @@ jobs:
 
       - run: npm ci
 
-      - name: Biome check
-        run: npx biome check
-
-      - name: Typecheck
-        run: npm run typecheck
-
-      - name: Build
-        run: npm run build
-
-      - name: Smoke test
-        run: npm run smoke
+      # Single source of truth for the validation chain. Defined in
+      # package.json as `check`, also invoked by wrangler.jsonc
+      # build.command so that both this Action and Cloudflare
+      # Workers Builds run the exact same sequence. Reorder or add
+      # a step in package.json once; both entrypoints inherit it.
+      - run: npm run check
