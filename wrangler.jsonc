@@ -3,8 +3,19 @@
   "name": "tint-website",
   "compatibility_date": "2026-05-04",
   "main": "./worker/index.ts",
+  "preview_urls": true,
   "assets": {
     "directory": "./dist",
     "binding": "ASSETS"
+  },
+  // The CI gate runs as a wrangler pre-deploy step. This makes the
+  // gate uniform across every entrypoint that builds the Worker:
+  // `wrangler deploy` locally, `wrangler versions upload`, and
+  // Cloudflare Workers Builds (which calls those commands by
+  // default). A failure here aborts the deploy; there is no other
+  // path to production. CI also runs these same checks
+  // independently in .github/workflows/ci.yml for fast PR feedback.
+  "build": {
+    "command": "npm run typecheck && npm run lint && npm run build && npm run smoke"
   }
 }

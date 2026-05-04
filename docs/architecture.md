@@ -9,28 +9,32 @@ Invariants marked **(out-of-band)** describe state that lives outside this repo 
 ## Topology
 
 ```
-git push master
-       │
-       ▼
-GitHub Action (.github/workflows/deploy.yml)
-  ├─ npm ci
-  ├─ biome check
-  ├─ astro check
-  ├─ astro build         →  dist/
-  ├─ tsx scripts/smoke-dist.ts
-  └─ wrangler deploy
-       │
-       ▼
-Cloudflare Worker (worker/index.ts)
-  ├─ /tint, /tint/   →  302 → GitHub Releases  →  download_count++
-  │                   └─ tint_download (GET, hostname-gated)  →  plausible.io
-  └─ *               →  env.ASSETS.fetch (dist/)
-                          (HTML carries a hostname-gated client snippet
-                           that fires pageview events to plausible.io)
+git push master                git push <feature-branch>  +  PR open
+       │                                       │
+       ▼                                       ▼
+Cloudflare Workers Builds            Cloudflare Workers Builds
+  npx wrangler deploy                  npx wrangler versions upload
+  └─ build.command (wrangler.jsonc)    └─ build.command (wrangler.jsonc)
+       ├─ astro check                       ├─ astro check
+       ├─ biome check                       ├─ biome check
+       ├─ astro build  →  dist/             ├─ astro build  →  dist/
+       └─ smoke-dist.ts                     └─ smoke-dist.ts
+       │                                       │
+       ▼                                       ▼
+Cloudflare Worker (production)        Worker version (preview alias)
+  worker/index.ts                       <branch>-tint-website
+  ├─ /tint    →  302 → GitHub Releases     .<subdomain>.workers.dev
+  │            └─ tint_download (GET,     │
+  │               hostname-gated)         │  Posted as PR comment by
+  │                  →  plausible.io      │  Cloudflare's GitHub App.
+  └─ *        →  env.ASSETS.fetch (dist/) │  Analytics gate excludes it
+                                          │  (hostname ≠ tint.sh).
        │
        ▼
 tint.sh  (Cloudflare-managed DNS, Worker custom domain)
 ```
+
+GitHub Actions runs [`ci.yml`](../.github/workflows/ci.yml) on every PR (lint + typecheck + build + smoke) as a fast, independent PR check. It does not deploy.
 
 ## Hosting
 
@@ -63,10 +67,21 @@ tint.sh  (Cloudflare-managed DNS, Worker custom domain)
 
 ## Deploy pipeline
 
-- **Single deploy path.** **(out-of-band)** [`.github/workflows/deploy.yml`](../.github/workflows/deploy.yml) is the only writer to the Cloudflare Worker. Cloudflare's built-in Git auto-deploy stays disabled to prevent it racing the Action. Verify by: in the Cloudflare dashboard for this Worker, check that the "Builds" / "Git integration" tab shows no connected repository.
-- **Deploy is gated on full CI.** Lint, typecheck, build, and smoke test all run in the deploy job before `wrangler deploy`. A failed smoke test fails the deploy.
-- **Required repo secrets.** `CLOUDFLARE_API_TOKEN` (Workers Scripts: Edit, all zones from the account) and `CLOUDFLARE_ACCOUNT_ID`.
+- **Single deploy path.** **(out-of-band)** Cloudflare Workers Builds is the only writer to the Worker — both for production (master) and per-PR previews. There is no GitHub Action deploy job and no `CLOUDFLARE_API_TOKEN` repo secret. Verify by: in the Cloudflare dashboard for this Worker, the "Settings → Build" panel shows this repository connected; no `.github/workflows/deploy.yml` exists in the repo.
+- **CI gate runs as a wrangler pre-deploy step.** [`wrangler.jsonc`](../wrangler.jsonc) `build.command` runs `astro check && biome check && astro build && smoke-dist.ts` before any `wrangler deploy` or `wrangler versions upload`. A failure aborts the deploy. This gate is in-repo and runs in every entrypoint that builds the Worker — Cloudflare Builds, local `wrangler deploy`, etc.
+- **Independent PR check.** [`.github/workflows/ci.yml`](../.github/workflows/ci.yml) runs the same checks on every PR via GitHub Actions. Strictly redundant with the wrangler gate; kept for fast PR feedback (no Cloudflare Builds provisioning latency) and for catching environment-specific issues that only manifest on GitHub's runners.
+- **Production deploy command.** **(out-of-band)** Default `npx wrangler deploy`. Set in the Cloudflare Builds dashboard under "Build configuration → Deploy command." Verify by: dashboard shows this exact command.
+- **Preview deploy command.** **(out-of-band)** Default `npx wrangler versions upload`. Cloudflare Builds runs this for every non-production branch with an open PR; the resulting alias URL is posted as a PR comment by Cloudflare's GitHub App.
 - **Rollback.** `npx wrangler rollback` from a checkout authenticated against the account, or via the Cloudflare dashboard's deployments list.
+
+## Preview deployments
+
+- **One alias per PR branch.** **(out-of-band, Cloudflare-managed)** Each PR commit triggers a Workers Builds build. On success it uploads a new Worker version aliased to the branch name: `<branch>-tint-website.<subdomain>.workers.dev`. The alias is stable across pushes to the same branch, so a phone-side bookmark survives every commit on that PR.
+- **Preview URLs require [`preview_urls: true`](../wrangler.jsonc).** Wrangler 4.34+ defaults this off; without it, alias URLs return Cloudflare's "preview disabled" page even after a successful upload.
+- **Previews bypass production.** A `wrangler versions upload` does not promote the version to the active deployment slot. Production at `tint.sh` continues serving the previous deploy until master receives a push and `wrangler deploy` runs.
+- **Analytics auto-exclude previews.** The hostname gate in [`worker/index.ts`](../worker/index.ts) and [`src/layouts/Layout.astro`](../src/layouts/Layout.astro) checks `hostname === 'tint.sh'`. Preview hostnames don't match, so `tint_download` events and pageviews don't fire — previews can't pollute the dashboard. This is the same gate that excludes `*.workers.dev` and `astro dev`; previews are a third class of caller it covers for free.
+- **Limit.** Cloudflare retains the 1000 most-recently-deployed aliases per Worker. We have one alias per open + recently-merged PR; the cap is unreachable in practice. Closed-PR aliases stay accessible until evicted, which is a feature (revisiting an old PR's preview is free).
+- **Custom-domain previews are not supported.** **(Cloudflare beta limitation.)** Previews live only on `*.workers.dev`. There is no `pr-N.preview.tint.sh` today.
 
 ## Smoke test as executable spec
 

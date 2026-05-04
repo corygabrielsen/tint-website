@@ -17,7 +17,9 @@ npx tsx scripts/smoke-dist.ts     # structural assertions on dist/
 
 ## Deploy
 
-Auto-deploys on push to `master` via [`.github/workflows/deploy.yml`](.github/workflows/deploy.yml). The Action runs the full CI suite (lint + typecheck + build + smoke) before invoking `wrangler deploy`. Cloudflare's built-in Git auto-deploy is disabled to prevent races.
+Auto-deploys on push to `master` via Cloudflare Workers Builds. The CI gate (lint + typecheck + build + smoke) runs as a wrangler pre-deploy step from [`wrangler.jsonc`](wrangler.jsonc) `build.command`, so a failing smoke test aborts the deploy. There is no GitHub Action deploy job.
+
+PRs get an isolated preview at `<branch>-tint-website.<subdomain>.workers.dev` — same URL across every push to that branch, posted as a PR comment by Cloudflare's GitHub App.
 
 ## Architecture (30 seconds)
 
