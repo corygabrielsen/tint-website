@@ -118,8 +118,12 @@ body {
 }
 
 main {
-  /* 64rem (Tailwind max-w-5xl, the modern modal answer for single-column
-     media-led composition); narrow controls cap themselves below this. */
+  /* 64rem (1024px, equivalent to Tailwind's max-w-5xl) is the intended
+     max content width — wide enough for the demo media without exceeding
+     the comfortable single-column composition range used by modern
+     design systems. The calc(100% - 3rem) term preserves a 24px
+     viewport-edge buffer on narrow screens. Narrow controls cap
+     themselves below this. */
   width: min(64rem, calc(100% - 3rem));
   margin: 0 auto;
   padding: 4rem 0;
