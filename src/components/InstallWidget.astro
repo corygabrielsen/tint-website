@@ -148,12 +148,15 @@ const stripTabindex: ShikiTransformer = {
   .install-widget {
     border: 1px solid var(--border);
     background: var(--code-bg);
-    /* <fieldset> shrinks to fit its content by default, so we explicitly
-       fill the parent column up to a 60rem cap. 60rem is 15/16 of main's
-       64rem cap, leaving a 2rem buffer on each side at the page max
+    /* <fieldset> doesn't stretch to fill a flex parent like other block
+       children do — its UA-set `min-inline-size: min-content` plus
+       implicit `width: auto` leaves it sized to its content. Setting
+       width explicitly fixes that and caps at 60rem: 15/16 of main's
+       64rem max, leaving a 2rem buffer on each side at the page max
        width so the install widget sits visually narrower than the demo
        media. At narrower viewports the cap doesn't engage and the
-       install widget fills main edge-to-edge. */
+       install widget fills main edge-to-edge; margin-inline: auto
+       centers it once the cap engages. */
     width: min(60rem, 100%);
     margin-inline: auto;
     /* fieldset and flex-item defaults treat min-inline-size as min-content,
