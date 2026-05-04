@@ -69,6 +69,23 @@ async function trackDownload(request: Request): Promise<void> {
 
 export default {
   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
+    // Site-wide method gate. The Worker exposes only static assets and
+    // a single GET-shaped redirect; POST/PUT/DELETE/PATCH have no
+    // semantics anywhere on tint.sh. Enforcing here (instead of inside
+    // each handler) means:
+    //   1. Future routes can't accidentally accept writes,
+    //   2. Scanners and bots get a clean 405 before any analytics or
+    //      origin work runs (the class of noise Copilot flagged on
+    //      /tint is solved everywhere, not just at /tint),
+    //   3. The `Allow` header tells well-behaved clients which methods
+    //      are valid.
+    if (request.method !== 'GET' && request.method !== 'HEAD') {
+      return new Response('Method Not Allowed', {
+        status: 405,
+        headers: { Allow: 'GET, HEAD' },
+      });
+    }
+
     const url = new URL(request.url);
 
     // Match `/tint` and `/tint/` so a stray trailing slash from a copy-
@@ -76,12 +93,23 @@ export default {
     // query strings or extend to `/tint/*` because the only documented
     // endpoint is the canonical short URL.
     if (url.pathname === '/tint' || url.pathname === '/tint/') {
-      // ctx.waitUntil keeps the Worker invocation alive until the
-      // Plausible POST settles. Without it the runtime may cancel the
-      // in-flight fetch as soon as we return the redirect, dropping
-      // events under load and leaving the dashboard quietly under-
-      // counting.
-      ctx.waitUntil(trackDownload(request));
+      // Hostname gate: only count traffic that actually arrived at
+      // the canonical `tint.sh` host. During pre-cutover verification
+      // at `tint-website.<account>.workers.dev` (and any future
+      // preview/staging hostname) the redirect still works — so the
+      // handler can be exercised end-to-end — but Plausible only sees
+      // real production hits. The symmetric client-side gate lives in
+      // src/layouts/Layout.astro; together they prevent the entire
+      // class of "non-prod traffic skews production analytics" that
+      // Copilot flagged on this server-side event.
+      if (url.hostname === PLAUSIBLE_DOMAIN) {
+        // ctx.waitUntil keeps the Worker invocation alive until the
+        // Plausible POST settles. Without it the runtime may cancel
+        // the in-flight fetch as soon as we return the redirect,
+        // dropping events under load and leaving the dashboard
+        // quietly under-counting.
+        ctx.waitUntil(trackDownload(request));
+      }
       return Response.redirect(RELEASE_URL, 302);
     }
 

@@ -217,17 +217,39 @@ function checkInstallWidget(html: string): void {
 // Plausible Analytics is the load-bearing observability channel for
 // tint.sh — every page must include the snippet, otherwise the dashboard
 // silently under-counts pageviews and our 6-month-trend assumption goes
-// invisible. We assert by URL stem (`plausible.io/js/pa-`) instead of
-// pinning the full hashed bundle name; Plausible reissues the bundle
-// under a new hash periodically and we don't want a remote rotation to
-// break our build. Coverage is page-by-page rather than once-per-build
-// because the failure mode is "404.html lost the snippet during a
-// layout refactor", not "the project lost it everywhere".
+// invisible. The snippet is dynamically injected by an inline gate in
+// the layout (see Layout.astro), so we look for the bundle URL inside
+// the inline script bodies, not in `<script src="…">` attributes.
+//
+// Three invariants are enforced together so the entire class of
+// "production analytics gets polluted by non-prod traffic" stays
+// solved:
+//
+//   1. The snippet must reference the bundle URL stem (loose match by
+//      `plausible.io/js/pa-` — Plausible periodically reissues the
+//      bundle under a new hash, and pinning the full hash would make
+//      a remote rotation a CI failure).
+//   2. The snippet must call `plausible.init()` so SPA-style pageview
+//      hooks are wired.
+//   3. The snippet must hostname-gate on `tint.sh` so *.workers.dev
+//      verify hits, future preview hostnames, and local `astro dev`
+//      don't auto-fire a production pageview when the bundle loads.
+//      The matching server-side gate lives in worker/index.ts.
+//
+// Coverage is page-by-page rather than once-per-build because the
+// failure mode is "404.html lost the snippet during a layout
+// refactor", not "the project lost it everywhere".
 function checkPlausibleSnippet(html: string, sourcePath: string): void {
-  const hasScript = /<script\b[^>]*\bsrc\s*=\s*"https:\/\/plausible\.io\/js\/pa-[^"]+"/.test(html);
-  check(hasScript, `${sourcePath}: missing Plausible analytics <script src="…/pa-…">`);
-  const hasInit = /plausible\.init\s*\(/.test(html);
-  check(hasInit, `${sourcePath}: missing inline plausible.init() call`);
+  const scripts = [...html.matchAll(/<script\b[^>]*>([\s\S]*?)<\/script>/g)].map((m) => m[1] ?? '');
+  const hasBundleUrl = scripts.some((s) => /plausible\.io\/js\/pa-/.test(s));
+  check(hasBundleUrl, `${sourcePath}: no inline <script> references the Plausible bundle URL`);
+  const hasInit = scripts.some((s) => /plausible\.init\s*\(/.test(s));
+  check(hasInit, `${sourcePath}: no inline <script> calls plausible.init()`);
+  const hasHostGate = scripts.some((s) => /location\.hostname\s*===\s*['"]tint\.sh['"]/.test(s));
+  check(
+    hasHostGate,
+    `${sourcePath}: Plausible snippet missing 'tint.sh' hostname gate (would fire pageviews on *.workers.dev / preview hosts)`,
+  );
 }
 
 const html = await readDistFile('index.html');

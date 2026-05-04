@@ -23,17 +23,32 @@ const { title, description, favicon = '/favicon.svg' } = Astro.props;
     <meta name="description" content={description} />
     <link rel="icon" type="image/svg+xml" href={favicon} />
     <title>{title}</title>
-    {/* Plausible Analytics: privacy-friendly RUM. The script bundle URL
-        is keyed to the tint.sh site (not a user secret); domain
-        identification is baked into pa-2GDvlSNQ-zZ5v8bZRNwrQ.js. is:inline
-        keeps Astro from bundling/transforming the snippet so it lands in
-        <head> verbatim, matching what plausible.io provides. The Worker
-        also fires server-side `tint_download` events on /tint hits — see
-        worker/index.ts. */}
-    <script is:inline async src="https://plausible.io/js/pa-2GDvlSNQ-zZ5v8bZRNwrQ.js"></script>
+    {/* Plausible Analytics: privacy-friendly RUM. The bundle URL is
+        keyed to the tint.sh site (not a user secret); domain
+        identification is baked into pa-2GDvlSNQ-zZ5v8bZRNwrQ.js.
+
+        Hostname gate: the Plausible bundle auto-fires a pageview when
+        it loads, so suppressing analytics on non-canonical hosts means
+        not loading the bundle at all (gating only `plausible.init()`
+        wouldn't help — the pageview happens at script load). On
+        *.workers.dev verification hits, on any future preview/staging
+        hostname, and during local `astro dev`, the snippet short-
+        circuits and Plausible never sees the request. The symmetric
+        server-side gate lives in worker/index.ts; together they keep
+        the dashboard a faithful record of real production traffic.
+
+        is:inline keeps Astro from bundling/transforming the snippet
+        so it lands in <head> verbatim. */}
     <script is:inline>
-      window.plausible=window.plausible||function(){(plausible.q=plausible.q||[]).push(arguments)},plausible.init=plausible.init||function(i){plausible.o=i||{}};
-      plausible.init()
+      if (location.hostname === 'tint.sh') {
+        var s = document.createElement('script');
+        s.async = true;
+        s.src = 'https://plausible.io/js/pa-2GDvlSNQ-zZ5v8bZRNwrQ.js';
+        document.head.appendChild(s);
+        window.plausible = window.plausible || function () { (plausible.q = plausible.q || []).push(arguments); };
+        window.plausible.init = window.plausible.init || function (i) { plausible.o = i || {}; };
+        window.plausible.init();
+      }
     </script>
   </head>
   <body>
