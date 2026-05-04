@@ -28,6 +28,19 @@ async function checkNonEmptyFile(path: string): Promise<void> {
   }
 }
 
+// Asserts a path is NOT present in dist/. Use to guard against build-
+// time regressions that would shadow Worker routes or other handled
+// paths (worker/index.ts handles `/tint` in code, so a file at
+// dist/tint would silently take precedence and break the redirect).
+async function checkAbsent(path: string): Promise<void> {
+  try {
+    await stat(new URL(path, dist));
+    errors.push(`${path} must not exist in dist/ — would shadow a Worker route`);
+  } catch {
+    // ENOENT is the success case.
+  }
+}
+
 function extractVideoSrc(html: string): string | undefined {
   const match = html.match(/<video\b[^>]*\bsrc\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+))/i);
   return match?.[1] ?? match?.[2] ?? match?.[3];
@@ -278,6 +291,11 @@ await checkNonEmptyFile('demo.mp4');
 await checkNonEmptyFile('demo.gif');
 await checkNonEmptyFile('robots.txt');
 await checkNonEmptyFile('sitemap-index.xml');
+
+// Worker-route shadowing guard. Each entry corresponds to a path
+// `worker/index.ts` handles in code; a static file with the same name
+// would be served by the assets binding and never reach the handler.
+await checkAbsent('tint');
 
 if (errors.length > 0) {
   console.error('dist smoke test failed:');

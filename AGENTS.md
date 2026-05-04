@@ -8,7 +8,7 @@ Do not modify the following without first reading [`docs/architecture.md`](docs/
 - **Analytics are hostname-gated to `tint.sh`.** Both the client snippet ([`src/layouts/Layout.astro`](src/layouts/Layout.astro)) and the server event ([`worker/index.ts`](worker/index.ts)). Ungated, `*.workers.dev` and `astro dev` pollute the dashboard. Enforced by [`scripts/smoke-dist.ts`](scripts/smoke-dist.ts) `checkPlausibleSnippet`.
 - **Site-wide GET/HEAD only.** [`worker/index.ts`](worker/index.ts) returns 405 for any other method. Adding a write-shaped route requires lifting this gate intentionally.
 - **Install command points at `https://tint.sh/tint`.** [`src/pages/index.astro`](src/pages/index.astro). Reverting to the raw GitHub URL bloats the displayed command and bypasses the Worker's `tint_download` event. Enforced by [`scripts/smoke-dist.ts`](scripts/smoke-dist.ts) `checkInstallWidget`.
-- **Cloudflare Git auto-deploy stays disabled.** The GitHub Action ([`.github/workflows/deploy.yml`](.github/workflows/deploy.yml)) is the sole writer to the Worker. Enabling both races them.
+- **Cloudflare Git auto-deploy stays disabled.** The GitHub Action ([`.github/workflows/deploy.yml`](.github/workflows/deploy.yml)) is the sole writer to the Worker. Enabling both races them. CI cannot enforce this — it lives in the Cloudflare dashboard. If a deploy ever lands without a corresponding Action run, suspect this first.
 
 ## What the smoke test guarantees
 

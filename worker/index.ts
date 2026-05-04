@@ -68,14 +68,25 @@ export default {
     const url = new URL(request.url);
 
     // Match `/tint` and `/tint/` (forgive a trailing slash). Query
-    // strings and `/tint/*` are intentionally not handled — only the
-    // canonical short URL is documented.
+    // strings are accepted and silently dropped — RELEASE_URL is fixed,
+    // so `?utm_source=...` and similar tracking params don't propagate
+    // to GitHub but also don't cause a 404 (which would be hostile to
+    // social links). Subpaths like `/tint/foo` fall through to ASSETS.
     if (url.pathname === '/tint' || url.pathname === '/tint/') {
-      // Hostname gate: only `tint.sh` traffic counts. The redirect still
-      // works on *.workers.dev / preview hosts so the handler can be
-      // exercised end-to-end, but Plausible only sees production hits.
-      // Symmetric client-side gate lives in src/layouts/Layout.astro.
-      if (url.hostname === PLAUSIBLE_DOMAIN) {
+      // Track only on GET. HEAD must still redirect (HTTP semantics:
+      // same headers as GET, no body) but doesn't represent a real
+      // download — link checkers, monitoring probes, and social-media
+      // preview crawlers use HEAD without fetching the binary, and
+      // GitHub's `download_count` only increments on the GET that
+      // actually pulls bytes. Firing `tint_download` on HEAD would
+      // skew the dashboard above GitHub's counter.
+      //
+      // Hostname gate: only `tint.sh` traffic counts. The redirect
+      // still works on *.workers.dev / preview hosts so the handler
+      // can be exercised end-to-end, but Plausible only sees
+      // production hits. Symmetric client-side gate lives in
+      // src/layouts/Layout.astro.
+      if (request.method === 'GET' && url.hostname === PLAUSIBLE_DOMAIN) {
         // waitUntil keeps the invocation alive until the POST settles;
         // otherwise the runtime cancels the in-flight fetch as soon as
         // the redirect returns, undercounting events under load.
