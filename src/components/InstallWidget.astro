@@ -1,10 +1,10 @@
 ---
 // Install command widget: a tabbed code block where each tab body is a
-// shiki-tokenised <pre> that doubles as a click-to-copy button.
+// shiki-tokenised <code> that doubles as a click-to-copy button.
 //
 // - Tabs are driven by hidden radio inputs + a `:has(input:nth-of-type(N):checked)`
 //   selector chain, so active-state switching is pure CSS with no JS.
-// - The whole pre+icon row is a single <button data-copy data-code=…>.
+// - The whole code+icon row is a single <button data-copy data-code=…>.
 //   Clicking anywhere on the row copies the verbatim command from
 //   `data-code` (NOT from textContent — shiki tokenises the source into
 //   spans whose textContent collapses runs of significant whitespace, and
@@ -24,7 +24,19 @@
 //   point) instead of producing a horizontal scrollbar inside the click
 //   row, so users can read the entire command before pasting it into a
 //   shell.
+//
+// HTML validity note: <button>'s WHATWG content model is "phrasing content,
+// no interactive descendants, no descendant with tabindex". The default
+// <Code> output is <pre tabindex="0"><code>…</code></pre>, which violates
+// both clauses (<pre> is flow content; tabindex on a descendant is
+// forbidden). Two surgical fixes flip it to a valid button child:
+//   1. `inline` makes Astro emit <code>…</code> directly (no <pre>).
+//      <code> is phrasing content, so it's allowed inside <button>.
+//   2. `stripTabindex` deletes the shiki-default `tabindex="0"` from the
+//      wrapper element; transformers run after Astro's pre→code rename, so
+//      the hook receives the renamed node and we mutate it in place.
 import { Code } from 'astro:components';
+import type { ShikiTransformer } from 'shiki';
 
 interface Command {
   label: string;
@@ -37,6 +49,14 @@ interface Props {
 }
 
 const { commands, id = 'install-widget' } = Astro.props;
+
+const stripTabindex: ShikiTransformer = {
+  pre(node) {
+    if (node.properties && 'tabindex' in node.properties) {
+      delete node.properties.tabindex;
+    }
+  },
+};
 ---
 
 <fieldset class="install-widget" id={id}>
@@ -61,7 +81,7 @@ const { commands, id = 'install-widget' } = Astro.props;
   </div>
   <div class="panels">
     {commands.map((cmd) => (
-      <div class="panel"><button data-copy data-code={cmd.code} type="button" class="command" aria-label={`Copy ${cmd.code}`}><span class="command-script"><Code code={cmd.code} lang="sh" theme="css-variables" /></span><span class="copy-status"><svg class="icon-copy" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="square" aria-hidden="true"><path d="M8.75 8.75V2.75H21.25V15.25H15.25M15.25 8.75H2.75V21.25H15.25V8.75Z" /></svg><svg class="icon-check" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="square" aria-hidden="true"><path d="M2.75 15.0938L9 20.25L21.25 3.75" /></svg><span class="copy-announce sr-only" aria-live="polite"></span></span></button></div>
+      <div class="panel"><button data-copy data-code={cmd.code} type="button" class="command" aria-label={`Copy ${cmd.code}`}><Code code={cmd.code} lang="sh" theme="css-variables" inline class="command-script" transformers={[stripTabindex]} /><span class="copy-status"><svg class="icon-copy" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="square" aria-hidden="true"><path d="M8.75 8.75V2.75H21.25V15.25H15.25M15.25 8.75H2.75V21.25H15.25V8.75Z" /></svg><svg class="icon-check" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="square" aria-hidden="true"><path d="M2.75 15.0938L9 20.25L21.25 3.75" /></svg><span class="copy-announce sr-only" aria-live="polite"></span></span></button></div>
     ))}
   </div>
 </fieldset>
@@ -72,7 +92,8 @@ const { commands, id = 'install-widget' } = Astro.props;
     background: var(--code-bg);
     /* fieldset and flex-item defaults treat min-inline-size as min-content,
        which lets long install commands stretch the widget past the
-       viewport. Resetting both lets the inner pre handle layout instead. */
+       viewport. Resetting both lets the inner code element handle layout
+       instead. */
     min-width: 0;
     min-inline-size: 0;
   }
@@ -133,7 +154,7 @@ const { commands, id = 'install-widget' } = Astro.props;
      to the icon column. `all: unset` strips browser button styles; we then
      pin box-sizing back to border-box (the global * reset is undone by the
      `all: unset` cascade) and re-impose the panel typography on the inner
-     pre below. */
+     <code> below. */
   .install-widget .command {
     all: unset;
     box-sizing: border-box;
@@ -164,33 +185,24 @@ const { commands, id = 'install-widget' } = Astro.props;
     outline-offset: -2px;
   }
 
-  /* `flex: 1 1 0; min-width: 0` lets the script slot shrink below its
-     intrinsic content width so the inner pre's wrap rules can break long
-     URLs at the row's right edge instead of pushing the icon off-screen. */
+  /* The script slot is the inner <code> that holds shiki's token spans.
+     `flex: 1 1 0; min-width: 0` lets it shrink below its intrinsic content
+     width so the wrap rules below can break long URLs at the row's right
+     edge instead of pushing the icon off-screen. `<code>` is inline by
+     default; switching to block + `pre-wrap` reproduces the terminal-style
+     layout we'd get from <pre> while keeping the markup valid inside the
+     parent <button> (block elements aren't allowed there). `break-all`
+     lets long URLs and paths split mid-character — honesty over
+     compactness, since `…`-style truncation obscures what users are
+     piping into a shell. */
   .install-widget .command-script {
+    display: block;
     flex: 1 1 0;
     min-width: 0;
-  }
-
-  /* Strip shiki's <pre> chrome and wrap terminal-style: any character is a
-     valid break point so long URLs and paths split cleanly at the panel's
-     right edge instead of producing a horizontal scrollbar inside the
-     click row. Honesty over compactness — users have to trust what they're
-     piping into a shell, and `…`-style truncation obscures that. */
-  .install-widget .command-script pre {
-    margin: 0;
-    padding: 0;
-    border: 0;
-    background: transparent;
     font-family: inherit;
     font-size: 0.875rem;
     white-space: pre-wrap;
     word-break: break-all;
-    overflow: visible;
-  }
-
-  .install-widget .command-script code {
-    font-family: inherit;
   }
 
   .install-widget .copy-status {
