@@ -76,26 +76,35 @@ async function checkFaviconLinks(html: string, sourcePath: string): Promise<void
   }
 }
 
-// The <video> element relies on three browser-policy attributes for the
-// autoplay demo to actually play: `autoplay` triggers playback, `muted` is
-// required by every modern browser's autoplay policy (without it autoplay
-// is blocked), and `playsinline` keeps iOS Safari from going fullscreen
-// on tap. Removing any one of them silently breaks the demo while still
-// rendering a poster frame, so the page looks fine in CI but is broken
-// for users. A non-empty `aria-label` is also required so screen readers
-// have something to announce for the unlabeled video.
-function checkVideoElement(html: string): void {
-  const tag = html.match(/<video\b[^>]*>/)?.[0];
-  check(Boolean(tag), 'homepage is missing a <video> element');
-  if (!tag) return;
-  for (const attr of ['autoplay', 'muted', 'playsinline']) {
-    check(
-      new RegExp(`\\b${attr}\\b`).test(tag),
-      `<video> missing required ${attr} attribute (autoplay won't trigger without it)`,
-    );
+// Sweep every <video> on the page. Two invariants apply:
+//
+// - Any video with `autoplay` must also carry `muted` (every modern
+//   browser's autoplay policy blocks autoplay without it) and
+//   `playsinline` (iOS Safari otherwise goes fullscreen on tap).
+//   Removing either silently breaks autoplay while still rendering a
+//   poster frame, so the page looks fine in CI but is broken for users.
+//   We gate this on `autoplay` so a non-autoplay video added later
+//   (background explainer, FAQ clip, etc.) doesn't trip the check.
+// - Every video, autoplay or not, needs a non-empty `aria-label` so
+//   screen readers have something to announce.
+//
+// At least one video must exist (the demo); we don't pin the count
+// because adding a second video shouldn't require a smoke change.
+function checkVideoElements(html: string): void {
+  const tags = [...html.matchAll(/<video\b[^>]*>/g)].map((m) => m[0]);
+  check(tags.length > 0, 'homepage is missing a <video> element');
+  for (const tag of tags) {
+    if (/\bautoplay\b/.test(tag)) {
+      for (const attr of ['muted', 'playsinline']) {
+        check(
+          new RegExp(`\\b${attr}\\b`).test(tag),
+          `<video autoplay> missing required ${attr} attribute (autoplay won't trigger without it): ${tag}`,
+        );
+      }
+    }
+    const ariaLabel = getAttr(tag, 'aria-label');
+    check(Boolean(ariaLabel), `<video> missing or empty aria-label (a11y regression): ${tag}`);
   }
-  const ariaLabel = getAttr(tag, 'aria-label');
-  check(Boolean(ariaLabel), '<video> missing or empty aria-label (a11y regression)');
 }
 
 // Links whose only visible content is an <svg> need an accessible name —
@@ -136,6 +145,19 @@ function checkLabelControlWiring(html: string): void {
   }
 }
 
+// Extract the rendered install-widget fieldset from the page so per-feature
+// assertions don't accidentally couple to the rest of the document. Without
+// this, a `data-copy` button added anywhere else on the homepage (e.g. a
+// future "copy share link" button) would break a check that's only meant
+// to protect the install widget. The fieldset is non-nesting in our markup,
+// so a non-greedy match through `</fieldset>` is safe.
+function extractInstallWidget(html: string): string | undefined {
+  const match = html.match(
+    /<fieldset\b[^>]*\bclass\s*=\s*"[^"]*\binstall-widget\b[^"]*"[\s\S]*?<\/fieldset>/,
+  );
+  return match?.[0];
+}
+
 // Structural assertions for the install widget. These catch the regression
 // classes the click handler is most exposed to: missing/wrong data-code,
 // aria-label drift, and — most importantly — the inlined <script> losing
@@ -144,7 +166,13 @@ function checkLabelControlWiring(html: string): void {
 // regression would ship silently because nothing exercises the handler
 // at runtime in CI.
 function checkInstallWidget(html: string): void {
-  const buttons = [...html.matchAll(/<button\b[^>]*\bdata-copy\b[^>]*>/g)].map((m) => m[0]);
+  const widget = extractInstallWidget(html);
+  check(Boolean(widget), 'install-widget fieldset not found in rendered HTML');
+  if (!widget) return;
+  // Scope the button query to the widget container — the data-copy
+  // attribute is a generic copy-to-clipboard hook, so a future copy
+  // button elsewhere on the page must not break this feature's check.
+  const buttons = [...widget.matchAll(/<button\b[^>]*\bdata-copy\b[^>]*>/g)].map((m) => m[0]);
   check(
     buttons.length === 2,
     `expected 2 install-widget buttons (brew + curl), found ${buttons.length}`,
@@ -197,7 +225,7 @@ if (videoSrc) {
 }
 
 checkInstallWidget(html);
-checkVideoElement(html);
+checkVideoElements(html);
 checkIconOnlyLinks(html);
 checkLabelControlWiring(html);
 await checkFaviconLinks(html, 'index.html');
