@@ -279,6 +279,53 @@ function checkInstallWidget(html: string): void {
 //
 // Run per-page (not once per build) because the failure mode is
 // "404.html lost the snippet during a layout refactor".
+// Static check on worker/index.ts: the per-surface gates that protect
+// production-only side effects from firing on preview hostnames must
+// be present. Two gates today, with a stable shape:
+//
+//   1. /tint → GitHub redirect is gated on the canonical hostname.
+//      The redirect call (Response.redirect(RELEASE_URL, …)) must
+//      live inside a control-flow block that requires
+//      url.hostname === PLAUSIBLE_DOMAIN. Verified loosely by
+//      requiring the hostname check to appear in the source before
+//      any Response.redirect(RELEASE_URL …) call.
+//   2. Non-canonical responses carry X-Robots-Tag: noindex.
+//      Verified by requiring the literal header name and the
+//      noindex token to appear together.
+//
+// Both checks are deliberately loose substring/order checks rather
+// than AST analysis: a stricter parser would overfit the current
+// shape of the file. The failure messages are explicit so a human
+// can quickly see what's missing.
+async function checkWorkerHostnameGates(): Promise<void> {
+  let workerSrc = '';
+  try {
+    workerSrc = await readFile(new URL('../worker/index.ts', import.meta.url), 'utf8');
+  } catch (error) {
+    errors.push(describeFsFailure('read', 'worker/index.ts', error));
+    return;
+  }
+
+  // Gate 1: hostname check must precede the redirect call in source
+  // order. Using `[\s\S]*?` (non-greedy) so the check is positional,
+  // not just "both substrings exist somewhere."
+  const tintRedirectGated =
+    /url\.hostname\s*===\s*PLAUSIBLE_DOMAIN[\s\S]*?Response\.redirect\(\s*RELEASE_URL/.test(
+      workerSrc,
+    );
+  check(
+    tintRedirectGated,
+    'worker/index.ts: /tint redirect must be gated on `url.hostname === PLAUSIBLE_DOMAIN` — without the gate, preview hosts inflate GitHub `download_count` above the matching `tint_download` event',
+  );
+
+  // Gate 2: X-Robots-Tag: noindex on non-canonical responses.
+  const robotsHeaderSet = /['"]X-Robots-Tag['"][\s\S]{0,80}?noindex/i.test(workerSrc);
+  check(
+    robotsHeaderSet,
+    'worker/index.ts: missing `X-Robots-Tag: noindex` injection for non-canonical hosts — preview hosts could be indexed by search engines as duplicate content of tint.sh',
+  );
+}
+
 function checkPlausibleSnippet(html: string, sourcePath: string): void {
   const scripts = [...html.matchAll(/<script\b[^>]*>([\s\S]*?)<\/script>/g)].map((m) => m[1] ?? '');
   const requirements: Array<[name: string, pattern: RegExp]> = [
@@ -346,6 +393,19 @@ await checkNonEmptyFile('sitemap-index.xml');
 // binding and never reach the handler. Add an entry here for every
 // future `/foo` route the Worker grows.
 await checkAbsent('tint');
+
+// Worker hostname-gate guards. The Worker runs identical code on
+// tint.sh and on per-PR `*.workers.dev` preview hosts; behaviors
+// with externally-observable side effects on tint.sh must therefore
+// be conditioned on `url.hostname === PLAUSIBLE_DOMAIN`. Removing
+// either gate would let preview deployments inflate the GitHub
+// release `download_count` (via `/tint`) or contribute duplicate-
+// content SEO pollution (via Google indexing the preview HTML).
+//
+// These are static checks on worker/index.ts (smoke-dist runs
+// against dist/, not a live Worker). The patterns are loose enough
+// to survive minor refactors but tight enough to catch removal.
+await checkWorkerHostnameGates();
 
 // Dead-artifact guard. `CNAME` is GitHub-Pages-specific machinery
 // (tells Pages which custom domain to serve at). This site deploys to

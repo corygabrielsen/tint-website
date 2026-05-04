@@ -24,13 +24,14 @@ Cloudflare Workers Builds            Cloudflare Workers Builds
 Cloudflare Worker (production)        Worker version (preview alias)
   worker/index.ts                       <alias>-tint-website
   ├─ /tint    →  302 → GitHub Releases     .<subdomain>.workers.dev
-  │            └─ tint_download (GET,     │  (alias = sanitized branch
-  │               hostname-gated)         │   name; canonical URL is
-  │                  →  plausible.io      │   the one in the PR comment
-  └─ *        →  env.ASSETS.fetch (dist/) │   Cloudflare posts).
-                                          │
-                                          │  Analytics gate excludes
-                                          │  previews (hostname ≠ tint.sh).
+  │            └─ tint_download (GET)    │  Same Worker code, different
+  │                  →  plausible.io      │  hostname. Per-surface gates
+  └─ *        →  env.ASSETS.fetch (dist/) │  in worker/index.ts apply:
+                                          │   • /tint 404s (fallthrough)
+                                          │   • tint_download suppressed
+                                          │   • pageviews suppressed
+                                          │   • X-Robots-Tag: noindex
+                                          │  on every asset response.
        │
        ▼
 tint.sh  (Cloudflare-managed DNS, Worker custom domain)
@@ -47,9 +48,10 @@ GitHub Actions runs [`ci.yml`](../.github/workflows/ci.yml) on every PR (lint + 
 ## Routing ([`worker/index.ts`](../worker/index.ts))
 
 - **Method gate is site-wide.** Methods other than `GET` and `HEAD` return `405 Method Not Allowed` with `Allow: GET, HEAD`. Enforced before any route matching.
-- **`/tint` and `/tint/` redirect.** 302 to `https://github.com/corygabrielsen/tint/releases/latest/download/tint`. The trailing-slash variant exists to forgive copy-paste artifacts.
+- **`/tint` and `/tint/` redirect on canonical host only.** 302 to `https://github.com/corygabrielsen/tint/releases/latest/download/tint`. The trailing-slash variant exists to forgive copy-paste artifacts. The route is gated on `url.hostname === 'tint.sh'`; on preview hostnames the request falls through to the asset binding (and 404s, since no static `/tint` file exists). Without this gate, preview traffic would 302 to GitHub and inflate the per-asset `download_count` while the matching Plausible `tint_download` event stays correctly suppressed — the two analytics surfaces would drift apart. Enforced by [`scripts/smoke-dist.ts`](../scripts/smoke-dist.ts) `checkWorkerHostnameGates`.
 - **Query strings on `/tint` are silently dropped.** The redirect target is fixed; `?utm_source=...` and similar tracking parameters are accepted (no 404, which would be hostile to social links) but are not forwarded to GitHub.
 - **`/tint` redirect target preserves `download_count`.** **(out-of-band: depends on GitHub.)** The target is `releases/latest/download/<asset>`, which GitHub itself 302s to the active release asset. The second hop is what increments the per-asset counter. Verify by: hit `/tint` with `curl -L`, then check the GitHub release page's download count incremented.
+- **Non-canonical hosts emit `X-Robots-Tag: noindex, nofollow`.** Every asset response served on a hostname other than `tint.sh` has the header appended in [`worker/index.ts`](../worker/index.ts). Without it, search engines could index preview URLs as duplicate content of `tint.sh` and rank a preview above the canonical site. The HTTP header is preferred over a `<meta name="robots">` tag because it requires no per-page render-time logic, applies uniformly to every response (HTML, sitemap, etc.), and is invisible to humans. Enforced by [`scripts/smoke-dist.ts`](../scripts/smoke-dist.ts) `checkWorkerHostnameGates`.
 - **Fallthrough.** All other paths (including subpaths like `/tint/foo`) delegate to the static assets binding. No path-based routing tables.
 
 ## Analytics
@@ -82,7 +84,7 @@ GitHub Actions runs [`ci.yml`](../.github/workflows/ci.yml) on every PR (lint + 
 - **Alias constraints (Cloudflare-published).** Lowercase letters, digits, and dashes only; must begin with a lowercase letter; alias + worker name + dash ≤ 63 characters (DNS label limit). Branches whose names exceed the limit get truncated with a 4-character hash suffix per Cloudflare's [Aug 2025 long-name update](https://developers.cloudflare.com/changelog/post/2025-08-08-support-long-branch-names-preview-aliases/). [`CONTRIBUTING.md`](../CONTRIBUTING.md) requires branch names of the form `<type>/<short-description>`, so every valid branch in this repo contains a `/` that Cloudflare must sanitize before the alias is valid; the exact transform is not part of this contract.
 - **Preview URLs require [`preview_urls: true`](../wrangler.jsonc).** Wrangler 4.34+ defaults this off; without it, alias URLs return Cloudflare's "preview disabled" page even after a successful upload.
 - **Previews bypass production.** A `wrangler versions upload` does not promote the version to the active deployment slot. Production at `tint.sh` continues serving the previous deploy until master receives a push and `wrangler deploy` runs.
-- **Analytics auto-exclude previews.** The hostname gate in [`worker/index.ts`](../worker/index.ts) and [`src/layouts/Layout.astro`](../src/layouts/Layout.astro) checks `hostname === 'tint.sh'`. Preview hostnames don't match, so `tint_download` events and pageviews don't fire — previews can't pollute the dashboard. This is the same gate that excludes `*.workers.dev` and `astro dev`; previews are a third class of caller it covers for free.
+- **Production-only behaviors auto-exclude previews.** The same `url.hostname === 'tint.sh'` gate appears on every behavior whose externally-observable side effect should fire on the canonical surface only — Plausible client pageviews, server `tint_download` events, the `/tint` → GitHub redirect, and the absence of `X-Robots-Tag`. Preview hostnames don't match any of those gates, so previews can't pollute the Plausible dashboard, can't inflate GitHub's `download_count`, and can't be indexed by search engines as duplicate content. This is the same gate that excludes `astro dev` from analytics. See § Routing for the per-gate detail and the smoke-test enforcement.
 - **Limit.** Cloudflare retains the 1000 most-recently-deployed aliases per Worker. We have one alias per open + recently-merged PR; the cap is unreachable in practice. Closed-PR aliases stay accessible until evicted, which is a feature (revisiting an old PR's preview is free).
 - **Custom-domain previews are not supported.** **(Cloudflare beta limitation.)** Previews live only on `*.workers.dev`. There is no `pr-N.preview.tint.sh` today.
 
