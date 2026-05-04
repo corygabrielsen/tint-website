@@ -9,11 +9,22 @@ function check(condition: boolean, message: string): void {
   }
 }
 
+// Distinguish "file is missing" (the common, expected build-regression
+// cause) from "we couldn't tell whether it's missing" (EACCES, EIO,
+// EMFILE, ENOTDIR, ...). Mistaking the latter for the former wastes
+// debugging time chasing a phantom build problem when the real cause is
+// the filesystem itself.
+function describeFsFailure(action: string, path: string, error: unknown): string {
+  const code = (error as NodeJS.ErrnoException).code;
+  if (code === 'ENOENT') return `missing ${path}`;
+  return `failed to ${action} ${path} (${code ?? 'unknown'}): ${(error as Error).message}`;
+}
+
 async function readDistFile(path: string): Promise<string> {
   try {
     return await readFile(new URL(path, dist), 'utf8');
   } catch (error) {
-    errors.push(`missing ${path}: ${(error as Error).message}`);
+    errors.push(describeFsFailure('read', path, error));
     return '';
   }
 }
@@ -24,7 +35,7 @@ async function checkNonEmptyFile(path: string): Promise<void> {
     check(file.isFile(), `${path} is not a file`);
     check(file.size > 0, `${path} is empty`);
   } catch (error) {
-    errors.push(`missing ${path}: ${(error as Error).message}`);
+    errors.push(describeFsFailure('stat', path, error));
   }
 }
 
