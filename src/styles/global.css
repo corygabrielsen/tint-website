@@ -115,9 +115,9 @@ body {
 }
 
 main {
-  max-width: 36rem;
+  width: min(33rem, calc(100% - 3rem));
   margin: 0 auto;
-  padding: 4rem 1.5rem;
+  padding: 4rem 0;
   display: flex;
   flex-direction: column;
   gap: 2rem;
@@ -127,6 +127,7 @@ header {
   text-align: center;
   display: flex;
   flex-direction: column;
+  align-items: center;
   gap: 0.5rem;
 }
 
@@ -134,7 +135,21 @@ h1 {
   font-family: var(--mono);
   font-size: 3rem;
   font-weight: 700;
-  letter-spacing: -0.02em;
+  line-height: 1;
+  letter-spacing: 0;
+}
+
+.theme-strip {
+  width: min(20rem, 72vw);
+  aspect-ratio: 16 / 1;
+  display: grid;
+  grid-template-columns: repeat(16, minmax(0, 1fr));
+  overflow: hidden;
+  background: transparent;
+}
+
+.theme-strip span {
+  min-width: 0;
 }
 
 .tagline {
@@ -301,6 +316,14 @@ a:hover {
   width: 100%;
   height: auto;
   border: 1px solid var(--border);
+}
+
+@media (max-width: 36rem) {
+  .demo {
+    width: calc(100% + 3rem);
+    max-width: none;
+    margin-inline: -1.5rem;
+  }
 }
 
 /* =============================================================================

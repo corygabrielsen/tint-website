@@ -16,12 +16,37 @@ const installCommands = [
     code: `curl -fsSL ${repoUrl}/releases/latest/download/tint -o ~/.local/bin/tint && chmod +x ~/.local/bin/tint`,
   },
 ];
+
+// Hue-sorted colors from public/favicon.svg.
+const themeColors = [
+  '#AC5353',
+  '#AC7453',
+  '#AC9653',
+  '#A1AC53',
+  '#80AC53',
+  '#5EAC53',
+  '#53AC69',
+  '#53AC8B',
+  '#53ACAC',
+  '#538BAC',
+  '#5369AC',
+  '#5E53AC',
+  '#8053AC',
+  '#A153AC',
+  '#AC5396',
+  '#AC5374',
+];
 ---
 
 <Layout title="tint - Terminal Theme Switcher">
   <main>
     <header>
       <h1>tint</h1>
+      <div class="theme-strip" aria-hidden="true">
+        {themeColors.map((color) => (
+          <span style={`background-color: ${color}`}></span>
+        ))}
+      </div>
       <p class="tagline">Terminal theme switcher.</p>
     </header>
 
