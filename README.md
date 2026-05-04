@@ -17,7 +17,7 @@ npx tsx scripts/smoke-dist.ts     # structural assertions on dist/
 
 ## Deploy
 
-Auto-deploys on push to `master` via Cloudflare Workers Builds. The CI gate (lint + typecheck + build + smoke) runs as a wrangler pre-deploy step from [`wrangler.jsonc`](wrangler.jsonc) `build.command`, so a failing smoke test aborts the deploy. There is no GitHub Action deploy job. (Manual `wrangler deploy` / `wrangler rollback` from an authenticated checkout, and dashboard rollback, also write to production — they are the deliberate escape hatches, not part of the automated path.)
+Auto-deploys on push to `master` via Cloudflare Workers Builds. The CI gate (lint + typecheck + build + smoke) lives in [`wrangler.jsonc`](wrangler.jsonc) `build.command`, so wrangler runs it before any command that builds the Worker — Builds, or a manual `wrangler deploy` from an authenticated checkout. A failing smoke test aborts the deploy. There is no GitHub Action deploy job. The deliberate escape hatches that bypass the gate are `wrangler rollback` and the Cloudflare dashboard's rollback / promote-version actions; they reuse already-built bytes (no rebuild ⇒ no gate) and are reserved for incident response.
 
 Each PR gets its own stable preview URL of the shape `<alias>-tint-website.<subdomain>.workers.dev`, where Cloudflare derives `<alias>` from the branch name (lowercase letters, numbers, and dashes only; `/` and other invalid hostname characters are sanitized; long branches truncated with a hash suffix). The exact URL for any given PR is the one Cloudflare's GitHub App posts as a sticky PR comment — that comment, not a formula in this README, is the source of truth.
 

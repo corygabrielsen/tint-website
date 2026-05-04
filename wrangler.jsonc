@@ -8,16 +8,17 @@
     "directory": "./dist",
     "binding": "ASSETS"
   },
-  // The CI gate runs as a wrangler pre-deploy step. This makes the
-  // gate uniform across every entrypoint that builds the Worker:
-  // `wrangler deploy` locally, `wrangler versions upload`, and
-  // Cloudflare Workers Builds (which calls those commands by
-  // default). A failure here aborts the wrangler invocation that
-  // triggered it. The gate is the only automated production path;
-  // manual `wrangler rollback` and dashboard rollback remain
-  // available as operator escape hatches and bypass this gate by
-  // design. CI also runs these checks independently in
-  // .github/workflows/ci.yml for fast PR feedback.
+  // The CI gate runs as a wrangler pre-deploy step, so it covers
+  // every command that builds the Worker — `wrangler deploy` and
+  // `wrangler versions upload`, whether triggered by Cloudflare
+  // Workers Builds or by an operator from a local checkout. A
+  // failure aborts the wrangler invocation that triggered it.
+  // Rollback paths (`wrangler rollback`, dashboard rollback /
+  // promote-version) reuse already-built bytes, so they don't
+  // rebuild and don't run this gate — that is the deliberate
+  // incident-response escape hatch. CI also runs these same
+  // checks independently in .github/workflows/ci.yml for fast PR
+  // feedback.
   "build": {
     "command": "npm run typecheck && npm run lint && npm run build && npm run smoke"
   }
