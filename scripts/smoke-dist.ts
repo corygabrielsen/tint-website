@@ -111,35 +111,109 @@ async function checkFaviconLinks(html: string, sourcePath: string): Promise<void
   }
 }
 
-// Sweep every <video> on the page. Two invariants apply:
-//
-// - Any video with `autoplay` must also carry `muted` (every modern
-//   browser's autoplay policy blocks autoplay without it) and
-//   `playsinline` (iOS Safari otherwise goes fullscreen on tap).
-//   Removing either silently breaks autoplay while still rendering a
-//   poster frame, so the page looks fine in CI but is broken for users.
-//   We gate this on `autoplay` so a non-autoplay video added later
-//   (background explainer, FAQ clip, etc.) doesn't trip the check.
-// - Every video, autoplay or not, needs a non-empty `aria-label` so
-//   screen readers have something to announce.
-//
-// At least one video must exist (the demo); we don't pin the count
-// because adding a second video shouldn't require a smoke change.
+// Demo videos are played by the viewport-aware controller below rather
+// than by raw `autoplay` attributes. They must still be muted and
+// playsinline so programmatic play works in mobile browsers.
 function checkVideoElements(html: string): void {
   const tags = [...html.matchAll(/<video\b[^>]*>/g)].map((m) => m[0]);
+  const frames = [...html.matchAll(/<div\b[^>]*\bdata-demo-frame\b[^>]*>/g)].map((m) => m[0]);
   check(tags.length > 0, 'homepage is missing a <video> element');
   for (const tag of tags) {
-    if (/\bautoplay\b/.test(tag)) {
-      for (const attr of ['muted', 'playsinline']) {
+    if (/\bdata-demo-video\b/.test(tag)) {
+      for (const attr of ['loop', 'muted', 'playsinline']) {
         check(
           new RegExp(`\\b${attr}\\b`).test(tag),
-          `<video autoplay> missing required ${attr} attribute (autoplay won't trigger without it): ${tag}`,
+          `<video data-demo-video> missing required ${attr} attribute: ${tag}`,
         );
       }
+      check(
+        !/\bautoplay\b/.test(tag),
+        `<video data-demo-video> should be script-controlled, not autoplay: ${tag}`,
+      );
     }
     const ariaLabel = getAttr(tag, 'aria-label');
     check(Boolean(ariaLabel), `<video> missing or empty aria-label (a11y regression): ${tag}`);
   }
+
+  const demoVideos = tags.filter((tag) => /\bdata-demo-video\b/.test(tag));
+  check(
+    demoVideos.length === 5,
+    `expected 5 script-controlled demo videos, found ${demoVideos.length}`,
+  );
+  check(frames.length === 5, `expected 5 clickable demo video frames, found ${frames.length}`);
+  for (const [i, frame] of frames.entries()) {
+    check(/\brole\s*=\s*"button"/.test(frame), `demo video frame ${i}: missing role="button"`);
+    check(/\btabindex\s*=\s*"0"/.test(frame), `demo video frame ${i}: missing tabindex="0"`);
+  }
+}
+
+function checkDemoVideoController(html: string): void {
+  const scripts = [...html.matchAll(/<script\b[^>]*>([\s\S]*?)<\/script>/g)].map((m) => m[1] ?? '');
+  const wired = scripts.some(
+    (s) =>
+      s.includes('data-demo-frame') &&
+      s.includes('data-demo-video') &&
+      s.includes('IntersectionObserver') &&
+      s.includes('data-demo-paused') &&
+      /addEventListener\(["']click["']/.test(s) &&
+      /addEventListener\(["']keydown["']/.test(s) &&
+      /addEventListener\(["']scroll["']/.test(s) &&
+      s.includes('requestAnimationFrame') &&
+      s.includes('currentTime') &&
+      s.includes('.pause()') &&
+      s.includes('.play()'),
+  );
+  check(wired, 'no inlined <script> wires clickable viewport-aware demo video playback');
+}
+
+function checkFeatureDemos(html: string): void {
+  const expectedCommands = [
+    'tint dracula',
+    'tint',
+    'eval "$(tint hook bash)"\necho dracula > .tint',
+    [
+      'mkdir -p ~/.config/tint/themes',
+      "cat > ~/.config/tint/themes/matrix.theme <<'EOF'",
+      'matrix:#000000:#00ff00:#000000:#008800:#00ff00:#aaff00:#005533:#00aa55:#00ff66:#88ff99:#003311:#00bb22:#33ff44:#bbff44:#006644:#00cc66:#44ff77:#ddffdd',
+      'EOF',
+      'tint matrix',
+    ].join('\n'),
+  ];
+  const sections = [
+    ...html.matchAll(/<section\b[^>]*\bdata-feature-demo\b[^>]*>[\s\S]*?<\/section>/g),
+  ].map((m) => m[0]);
+  check(
+    sections.length === expectedCommands.length,
+    `expected ${expectedCommands.length} feature demos, found ${sections.length}`,
+  );
+
+  for (const [i, section] of sections.entries()) {
+    check(/<h2\b/.test(section), `feature demo ${i}: missing title`);
+    check(/<p\b/.test(section), `feature demo ${i}: missing sentence`);
+    check(/<video\b/.test(section), `feature demo ${i}: missing video`);
+    check(/\bdata-feature-command\b/.test(section), `feature demo ${i}: missing command block`);
+    const copyButton = section.match(
+      /<button\b(?:"[^"]*"|'[^']*'|[^'">])*\bdata-feature-copy\b(?:"[^"]*"|'[^']*'|[^'">])*>/,
+    )?.[0];
+    check(Boolean(copyButton), `feature demo ${i}: missing copy button`);
+    if (copyButton) {
+      const dataCode = getAttr(copyButton, 'data-code');
+      check(Boolean(dataCode), `feature demo ${i}: copy button missing data-code`);
+      if (dataCode) {
+        const decodedCode = decodeHtmlEntities(dataCode);
+        check(
+          decodedCode === expectedCommands[i],
+          `feature demo ${i}: command mismatch "${decodedCode}"`,
+        );
+      }
+    }
+  }
+
+  const scripts = [...html.matchAll(/<script\b[^>]*>([\s\S]*?)<\/script>/g)].map((m) => m[1] ?? '');
+  const wired = scripts.some(
+    (s) => s.includes('data-feature-copy') && s.includes('clipboard.writeText'),
+  );
+  check(wired, 'no inlined <script> wires feature command copy buttons');
 }
 
 // Links whose only visible content is an <svg> need an accessible name —
@@ -395,6 +469,8 @@ for (const videoSrc of videoSrcs) {
 
 checkInstallWidget(html);
 checkVideoElements(html);
+checkDemoVideoController(html);
+checkFeatureDemos(html);
 checkIconOnlyLinks(html);
 checkLabelControlWiring(html);
 checkPlausibleSnippet(html, 'index.html');

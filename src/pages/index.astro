@@ -49,18 +49,39 @@ const themeColors = [
 
 const featureDemos = [
   {
+    id: 'apply-by-name',
+    title: 'Set a theme by name',
+    description: 'Use any built-in theme directly from your shell when you already know what you want.',
+    command: 'tint dracula',
     src: 'demo-cli.mp4',
     alt: 'Applying built-in tint themes by name',
   },
   {
+    id: 'picker',
+    title: 'Browse with live preview',
+    description: 'Run tint with no arguments to open the picker, move through themes, and apply the one that fits.',
+    command: 'tint',
     src: 'demo-picker.mp4',
     alt: 'Selecting a tint theme in the interactive picker',
   },
   {
+    id: 'cd-hook',
+    title: 'Switch by directory',
+    description: 'Install the shell hook once, then add .tint files so projects can carry their own terminal theme.',
+    command: `eval "$(tint hook bash)"
+echo dracula > .tint`,
     src: 'demo-cd-hook.mp4',
     alt: 'Automatically applying tint themes when changing directories',
   },
   {
+    id: 'custom-theme',
+    title: 'Add custom themes',
+    description: 'Save your own palette in the tint themes directory, then apply it with the same command as a built-in.',
+    command: `mkdir -p ~/.config/tint/themes
+cat > ~/.config/tint/themes/matrix.theme <<'EOF'
+matrix:#000000:#00ff00:#000000:#008800:#00ff00:#aaff00:#005533:#00aa55:#00ff66:#88ff99:#003311:#00bb22:#33ff44:#bbff44:#006644:#00cc66:#44ff77:#ddffdd
+EOF
+tint matrix`,
     src: 'demo-custom-theme.mp4',
     alt: 'Adding and applying a custom tint theme',
   },
@@ -85,31 +106,84 @@ const featureDemos = [
     <InstallWidget commands={installCommands} />
 
     {/* TODO: Add a small static poster image for MP4 load/decode failures. */}
-    <video
-      class="demo"
-      src="demo.mp4"
-      autoplay
-      loop
-      muted
-      playsinline
-      width="824"
-      height="450"
-      aria-label="tint demo: picker, CLI, cd-hook auto-tinting, custom theme"
-    ></video>
+    <div class="demo-frame" data-demo-frame role="button" tabindex="0" aria-label="Play demo video">
+      <video
+        class="demo"
+        data-demo-video
+        src="demo.mp4"
+        loop
+        muted
+        playsinline
+        preload="metadata"
+        width="824"
+        height="450"
+        aria-label="tint demo: picker, CLI, cd-hook auto-tinting, custom theme"
+      ></video>
+      <span class="demo-play-overlay" aria-hidden="true"></span>
+    </div>
 
     <div class="feature-demos">
       {featureDemos.map((demo) => (
-        <video
-          class="demo"
-          src={demo.src}
-          autoplay
-          loop
-          muted
-          playsinline
-          width="824"
-          height="450"
-          aria-label={demo.alt}
-        ></video>
+        <section class="feature-demo" data-feature-demo aria-labelledby={`feature-${demo.id}`}>
+          <div class="feature-copy">
+            <h2 id={`feature-${demo.id}`}>{demo.title}</h2>
+            <p>{demo.description}</p>
+            <button
+              type="button"
+              class="feature-command"
+              data-feature-command
+              data-feature-copy
+              data-code={demo.command}
+              aria-label={`Copy ${demo.title} command`}
+            >
+              <code>{demo.command}</code>
+              <span class="feature-copy-status">
+                <svg
+                  class="icon-copy"
+                  width="16"
+                  height="16"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="1.5"
+                  stroke-linecap="square"
+                  aria-hidden="true"
+                >
+                  <path d="M8.75 8.75V2.75H21.25V15.25H15.25M15.25 8.75H2.75V21.25H15.25V8.75Z" />
+                </svg>
+                <svg
+                  class="icon-check"
+                  width="16"
+                  height="16"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2"
+                  stroke-linecap="square"
+                  aria-hidden="true"
+                >
+                  <path d="M2.75 15.0938L9 20.25L21.25 3.75" />
+                </svg>
+                <span class="feature-copy-announce sr-only" aria-live="polite"></span>
+              </span>
+            </button>
+          </div>
+          <div class="demo-frame" data-demo-frame role="button" tabindex="0" aria-label="Play demo video">
+            <video
+              class="demo"
+              data-demo-video
+              src={demo.src}
+              loop
+              muted
+              playsinline
+              preload="metadata"
+              width="824"
+              height="450"
+              aria-label={demo.alt}
+            ></video>
+            <span class="demo-play-overlay" aria-hidden="true"></span>
+          </div>
+        </section>
       ))}
     </div>
 
@@ -121,4 +195,215 @@ const featureDemos = [
 
     <p class="copyright">© 2026 Cory Gabrielsen</p>
   </main>
+
+<script>
+  const FEATURE_COPY_RESET_MS = 1500;
+  const featureCopyTimers = new WeakMap<HTMLButtonElement, number>();
+
+  document.querySelectorAll<HTMLButtonElement>('[data-feature-copy]').forEach((btn) => {
+    const announce = btn.querySelector<HTMLSpanElement>('.feature-copy-announce');
+
+    btn.addEventListener('click', async () => {
+      const text = btn.dataset.code ?? '';
+      let success = false;
+      try {
+        await navigator.clipboard.writeText(text);
+        success = true;
+      } catch (err) {
+        console.error('Feature command clipboard write failed:', err);
+      }
+
+      if (success) {
+        btn.setAttribute('data-copied', '');
+        if (announce) announce.textContent = 'Copied';
+      } else if (announce) {
+        announce.textContent = 'Copy failed';
+      }
+
+      const prev = featureCopyTimers.get(btn);
+      if (prev !== undefined) window.clearTimeout(prev);
+      featureCopyTimers.set(
+        btn,
+        window.setTimeout(() => {
+          btn.removeAttribute('data-copied');
+          if (announce) announce.textContent = '';
+        }, FEATURE_COPY_RESET_MS),
+      );
+    });
+  });
+</script>
+
+<script>
+  const DEMO_VIDEO_MIN_VISIBLE_RATIO = 0.12;
+  const demoFrames = [...document.querySelectorAll<HTMLElement>('[data-demo-frame]')];
+  const demoVideos = demoFrames
+    .map((frame) => frame.querySelector<HTMLVideoElement>('[data-demo-video]'))
+    .filter((video): video is HTMLVideoElement => Boolean(video));
+  const demoVideoFrames = new Map<HTMLVideoElement, HTMLElement>();
+  let activeDemoVideo: HTMLVideoElement | null = null;
+  let manualDemoVideo: HTMLVideoElement | null = null;
+  let isDemoUserPaused = false;
+  let demoPlaybackFrame = 0;
+
+  for (const frame of demoFrames) {
+    const video = frame.querySelector<HTMLVideoElement>('[data-demo-video]');
+    if (video) demoVideoFrames.set(video, frame);
+  }
+
+  function resetDemoVideo(video: HTMLVideoElement): void {
+    video.pause();
+    if (video.currentTime > 0.05) {
+      try {
+        video.currentTime = 0;
+      } catch {
+        // Some browsers can reject seeks before metadata is ready.
+      }
+    }
+  }
+
+  function focusScore(video: HTMLVideoElement): number {
+    const rect = video.getBoundingClientRect();
+    const viewportHeight = window.innerHeight || document.documentElement.clientHeight;
+    const viewportWidth = window.innerWidth || document.documentElement.clientWidth;
+    const visibleWidth = Math.max(0, Math.min(rect.right, viewportWidth) - Math.max(rect.left, 0));
+    const visibleHeight = Math.max(0, Math.min(rect.bottom, viewportHeight) - Math.max(rect.top, 0));
+    const area = Math.max(1, rect.width * rect.height);
+    const visibleRatio = (visibleWidth * visibleHeight) / area;
+
+    if (visibleRatio < DEMO_VIDEO_MIN_VISIBLE_RATIO) return Number.NEGATIVE_INFINITY;
+
+    const videoCenter = rect.top + rect.height / 2;
+    const viewportCenter = viewportHeight / 2;
+    const centerDistance = Math.abs(videoCenter - viewportCenter) / Math.max(1, viewportHeight);
+
+    return visibleRatio - centerDistance * 0.25;
+  }
+
+  function focusedDemoVideo(): HTMLVideoElement | null {
+    let best: HTMLVideoElement | null = null;
+    let bestScore = Number.NEGATIVE_INFINITY;
+
+    for (const video of demoVideos) {
+      const score = focusScore(video);
+      if (score > bestScore) {
+        best = video;
+        bestScore = score;
+      }
+    }
+
+    return best;
+  }
+
+  function updateDemoFrameStates(next: HTMLVideoElement | null): void {
+    for (const video of demoVideos) {
+      const frame = demoVideoFrames.get(video);
+      if (!frame) continue;
+
+      const isActive = video === next;
+      frame.toggleAttribute('data-demo-active', isActive);
+      frame.toggleAttribute('data-demo-paused', isActive && isDemoUserPaused);
+      frame.setAttribute(
+        'aria-label',
+        isActive && !isDemoUserPaused ? 'Pause demo video' : 'Play demo video',
+      );
+    }
+  }
+
+  function updateDemoPlayback(): void {
+    demoPlaybackFrame = 0;
+
+    if (document.visibilityState === 'hidden') {
+      for (const video of demoVideos) resetDemoVideo(video);
+      activeDemoVideo = null;
+      updateDemoFrameStates(null);
+      return;
+    }
+
+    const next = manualDemoVideo ?? focusedDemoVideo();
+    for (const video of demoVideos) {
+      if (video !== next) {
+        if (isDemoUserPaused) {
+          video.pause();
+        } else {
+          resetDemoVideo(video);
+        }
+      }
+    }
+
+    if (!next) {
+      activeDemoVideo = null;
+      updateDemoFrameStates(null);
+      return;
+    }
+
+    if (!isDemoUserPaused && activeDemoVideo !== next && next.currentTime > 0.05) {
+      try {
+        next.currentTime = 0;
+      } catch {
+        // Metadata may not be ready yet; play() will start from the beginning.
+      }
+    }
+
+    activeDemoVideo = next;
+    updateDemoFrameStates(next);
+
+    if (isDemoUserPaused) {
+      next.pause();
+      return;
+    }
+
+    if (next.paused) {
+      void next.play().catch(() => {
+        // Autoplay can still be blocked in unusual browser settings; leave controls hidden.
+      });
+    }
+  }
+
+  function clearManualDemoVideo(): void {
+    manualDemoVideo = null;
+    scheduleDemoPlaybackUpdate();
+  }
+
+  function toggleDemoVideo(video: HTMLVideoElement): void {
+    const clickedWasPlaying = video === activeDemoVideo && !isDemoUserPaused;
+    manualDemoVideo = video;
+    isDemoUserPaused = clickedWasPlaying;
+    updateDemoPlayback();
+  }
+
+  function scheduleDemoPlaybackUpdate(): void {
+    if (demoPlaybackFrame === 0) {
+      demoPlaybackFrame = window.requestAnimationFrame(updateDemoPlayback);
+    }
+  }
+
+  if (demoVideos.length > 0) {
+    if ('IntersectionObserver' in window) {
+      const thresholds = Array.from({ length: 11 }, (_, i) => i / 10);
+      const observer = new IntersectionObserver(scheduleDemoPlaybackUpdate, {
+        threshold: thresholds,
+      });
+      for (const video of demoVideos) observer.observe(video);
+    }
+
+    for (const frame of demoFrames) {
+      const video = frame.querySelector<HTMLVideoElement>('[data-demo-video]');
+      if (!video) continue;
+
+      frame.addEventListener('click', () => toggleDemoVideo(video));
+      frame.addEventListener('keydown', (event) => {
+        if (event.key === 'Enter' || event.key === ' ') {
+          event.preventDefault();
+          toggleDemoVideo(video);
+        }
+      });
+    }
+
+    window.addEventListener('scroll', clearManualDemoVideo, { passive: true });
+    window.addEventListener('resize', scheduleDemoPlaybackUpdate);
+    window.addEventListener('pageshow', scheduleDemoPlaybackUpdate);
+    document.addEventListener('visibilitychange', scheduleDemoPlaybackUpdate);
+    scheduleDemoPlaybackUpdate();
+  }
+</script>
 </Layout>
