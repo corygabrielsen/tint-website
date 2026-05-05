@@ -5,6 +5,10 @@ const dist = new URL('../dist/', import.meta.url);
 const errors: string[] = [];
 const runtimeRoleButtonPattern = /\.setAttribute\(\s*(['"])role\1\s*,\s*(['"])button\2\s*\)/;
 const runtimeFrameLabelPattern = /\$\{\s*\w+\s*\?\s*(['"])Pause\1\s*:\s*(['"])Play\2\s*\}:\s*\$\{/;
+const reducedMotionInitialPausePattern =
+  /matchMedia\(\s*(['"])\(prefers-reduced-motion: reduce\)\1\s*\)[\s\S]{0,240}?\blet\b[\s\S]{0,160}?\b\w+\s*=\s*\w+\.matches\b/;
+const reducedMotionChangePausePattern =
+  /(?:if\s*\([^)]*\.matches\)\s*\w+\s*=\s*true|\w+\.matches\s*&&\s*\(?\w+\s*=\s*!0\)?)/;
 
 function check(condition: boolean, message: string): void {
   if (!condition) {
@@ -111,6 +115,17 @@ function checkSmokeParserSelfTests(): void {
   ]) {
     check(runtimeRoleButtonPattern.test(sample), `role=button parser rejected ${sample}`);
   }
+
+  check(
+    reducedMotionInitialPausePattern.test(
+      'const q=window.matchMedia("(prefers-reduced-motion: reduce)");let a=null,b=null,p=q.matches,f=0;',
+    ),
+    'reduced-motion initial-pause parser rejected minified sample',
+  );
+  check(
+    reducedMotionChangePausePattern.test('const h=e=>{e.matches&&(p=!0),r()};'),
+    'reduced-motion change-pause parser rejected minified sample',
+  );
 }
 
 async function readPageScripts(html: string): Promise<string[]> {
@@ -294,6 +309,8 @@ function checkDemoVideoController(scripts: string[]): void {
       s.includes('IntersectionObserver') &&
       s.includes('prefers-reduced-motion: reduce') &&
       s.includes('matchMedia') &&
+      reducedMotionInitialPausePattern.test(s) &&
+      reducedMotionChangePausePattern.test(s) &&
       s.includes('data-demo-paused') &&
       s.includes('aria-pressed') &&
       s.includes('getAttribute("aria-label")') &&

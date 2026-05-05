@@ -255,7 +255,9 @@ function inlineDescriptionParts(text: string): InlineDescriptionPart[] {
   const reducedMotionQuery = window.matchMedia('(prefers-reduced-motion: reduce)');
   let activeDemoVideo: HTMLVideoElement | null = null;
   let manualDemoVideo: HTMLVideoElement | null = null;
-  let isDemoUserPaused = reducedMotionQuery.matches;
+  // Reduced motion seeds the page-load default. The user can still opt into
+  // playback with the same page-level play/pause control as everyone else.
+  let isDemoPlaybackPaused = reducedMotionQuery.matches;
   let demoPlaybackFrame = 0;
 
   for (const frame of demoFrames) {
@@ -318,9 +320,9 @@ function inlineDescriptionParts(text: string): InlineDescriptionPart[] {
       if (!frame) continue;
 
       const isActive = video === next;
-      const isPlaying = isActive && !isDemoUserPaused;
+      const isPlaying = isActive && !isDemoPlaybackPaused;
       frame.toggleAttribute('data-demo-active', isActive);
-      frame.toggleAttribute('data-demo-paused', isActive && isDemoUserPaused);
+      frame.toggleAttribute('data-demo-paused', isActive && isDemoPlaybackPaused);
       frame.setAttribute('aria-label', demoFrameLabel(video, isPlaying));
       frame.setAttribute('aria-pressed', String(isPlaying));
     }
@@ -339,7 +341,7 @@ function inlineDescriptionParts(text: string): InlineDescriptionPart[] {
     const next = manualDemoVideo ?? focusedDemoVideo();
     for (const video of demoVideos) {
       if (video !== next) {
-        if (isDemoUserPaused) {
+        if (isDemoPlaybackPaused) {
           video.pause();
         } else {
           resetDemoVideo(video);
@@ -353,7 +355,7 @@ function inlineDescriptionParts(text: string): InlineDescriptionPart[] {
       return;
     }
 
-    if (!isDemoUserPaused && activeDemoVideo !== next && next.currentTime > 0.05) {
+    if (!isDemoPlaybackPaused && activeDemoVideo !== next && next.currentTime > 0.05) {
       try {
         next.currentTime = 0;
       } catch {
@@ -364,7 +366,7 @@ function inlineDescriptionParts(text: string): InlineDescriptionPart[] {
     activeDemoVideo = next;
     updateDemoFrameStates(next);
 
-    if (isDemoUserPaused) {
+    if (isDemoPlaybackPaused) {
       next.pause();
       return;
     }
@@ -382,9 +384,9 @@ function inlineDescriptionParts(text: string): InlineDescriptionPart[] {
   }
 
   function toggleDemoVideo(video: HTMLVideoElement): void {
-    const clickedWasPlaying = video === activeDemoVideo && !isDemoUserPaused;
+    const clickedWasPlaying = video === activeDemoVideo && !isDemoPlaybackPaused;
     manualDemoVideo = video;
-    isDemoUserPaused = clickedWasPlaying;
+    isDemoPlaybackPaused = clickedWasPlaying;
     updateDemoPlayback();
   }
 
@@ -423,7 +425,7 @@ function inlineDescriptionParts(text: string): InlineDescriptionPart[] {
     window.addEventListener('pageshow', scheduleDemoPlaybackUpdate);
     document.addEventListener('visibilitychange', scheduleDemoPlaybackUpdate);
     const handleReducedMotionChange = (event: MediaQueryListEvent): void => {
-      if (event.matches) isDemoUserPaused = true;
+      if (event.matches) isDemoPlaybackPaused = true;
       scheduleDemoPlaybackUpdate();
     };
     reducedMotionQuery.addEventListener('change', handleReducedMotionChange);
