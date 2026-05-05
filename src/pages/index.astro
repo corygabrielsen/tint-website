@@ -307,19 +307,22 @@ function inlineDescriptionParts(text: string): InlineDescriptionPart[] {
     return best;
   }
 
+  function demoFrameLabel(video: HTMLVideoElement, isPlaying: boolean): string {
+    const videoLabel = video.getAttribute('aria-label') ?? 'demo video';
+    return `${isPlaying ? 'Pause' : 'Play'}: ${videoLabel}`;
+  }
+
   function updateDemoFrameStates(next: HTMLVideoElement | null): void {
     for (const video of demoVideos) {
       const frame = demoVideoFrames.get(video);
       if (!frame) continue;
 
       const isActive = video === next;
+      const isPlaying = isActive && !isDemoUserPaused;
       frame.toggleAttribute('data-demo-active', isActive);
       frame.toggleAttribute('data-demo-paused', isActive && isDemoUserPaused);
-      frame.setAttribute(
-        'aria-label',
-        isActive && !isDemoUserPaused ? 'Pause demo video' : 'Play demo video',
-      );
-      frame.setAttribute('aria-pressed', String(isActive && !isDemoUserPaused));
+      frame.setAttribute('aria-label', demoFrameLabel(video, isPlaying));
+      frame.setAttribute('aria-pressed', String(isPlaying));
     }
   }
 

@@ -4,6 +4,7 @@ import { parse as parseJsonc, printParseErrorCode } from 'jsonc-parser';
 const dist = new URL('../dist/', import.meta.url);
 const errors: string[] = [];
 const runtimeRoleButtonPattern = /\.setAttribute\(\s*(['"])role\1\s*,\s*(['"])button\2\s*\)/;
+const runtimeFrameLabelPattern = /\$\{\s*\w+\s*\?\s*(['"])Pause\1\s*:\s*(['"])Play\2\s*\}:\s*\$\{/;
 
 function check(condition: boolean, message: string): void {
   if (!condition) {
@@ -240,6 +241,13 @@ async function checkVideoElements(html: string): Promise<void> {
     demoVideos.length === 5,
     `expected 5 script-controlled demo videos, found ${demoVideos.length}`,
   );
+  const demoVideoLabels = demoVideos
+    .map((tag) => getAttr(tag, 'aria-label'))
+    .filter((label): label is string => Boolean(label));
+  check(
+    new Set(demoVideoLabels).size === demoVideos.length,
+    `demo video aria-labels must be unique so runtime frame controls have unique names: ${demoVideoLabels.join(' | ')}`,
+  );
   check(frames.length === 5, `expected 5 demo video frames, found ${frames.length}`);
   for (const [i, frame] of frames.entries()) {
     check(
@@ -288,6 +296,8 @@ function checkDemoVideoController(scripts: string[]): void {
       s.includes('matchMedia') &&
       s.includes('data-demo-paused') &&
       s.includes('aria-pressed') &&
+      s.includes('getAttribute("aria-label")') &&
+      runtimeFrameLabelPattern.test(s) &&
       runtimeRoleButtonPattern.test(s) &&
       /addEventListener\(["']click["']/.test(s) &&
       /addEventListener\(["']keydown["']/.test(s) &&
