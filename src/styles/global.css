@@ -279,37 +279,21 @@ a:hover {
   color: var(--muted);
 }
 
-.feature-command {
-  all: unset;
-  box-sizing: border-box;
-  display: flex;
-  align-items: flex-start;
-  gap: 0.75rem;
-  width: 100%;
-  max-width: 100%;
-  padding: 0.75rem 1rem;
-  border: 1px solid var(--border);
-  background: var(--code-bg);
-  color: var(--fg);
-  cursor: pointer;
-  font-family: var(--mono);
-  min-width: 0;
-}
-
-.feature-command:hover {
-  background: color-mix(in srgb, var(--code-bg) 90%, var(--fg) 10%);
-}
-
-.feature-command:focus-visible {
-  outline: 2px solid var(--fg);
-  outline-offset: -2px;
-}
-
-/* Shiki's pre→span output. pre-wrap preserves the literal newlines
-   between line spans; break-all keeps long URLs from pushing the icon
-   column off-screen. Background override neutralizes the astro-code
-   default so hover/focus states paint the whole button uniformly. */
-.feature-command .command-body {
+/* Shiki's pre→span tokenization output, used wherever HighlightedCommand
+   renders. Single source of truth — InstallWidget panels, per-feature
+   CopyCommand cards, and any future copy surface all read from this
+   rule. Lives in global.css (not a scoped component <style>) because
+   shiki's <Code> output doesn't carry an Astro component scope hash, so
+   scoped descendant selectors targeting .command-body wouldn't reach it.
+   - pre-wrap preserves the literal newlines shiki emits between line
+     spans, so multi-line commands stack correctly inside the inline-only
+     <span> wrapper.
+   - break-all lets long URLs and paths split mid-character — honesty
+     over compactness, since `…`-style truncation obscures what users are
+     piping into a shell.
+   - Background override neutralizes shiki's astro-code default so hover
+     and focus states paint the surrounding click target uniformly. */
+.command-body {
   display: block;
   flex: 1 1 0;
   min-width: 0;
@@ -319,33 +303,6 @@ a:hover {
   white-space: pre-wrap;
   word-break: break-all;
   background: transparent;
-}
-
-.feature-copy-status {
-  display: inline-flex;
-  align-items: center;
-  flex-shrink: 0;
-  color: color-mix(in srgb, var(--muted) 65%, var(--bg) 35%);
-}
-
-.feature-command .icon-copy {
-  display: block;
-  width: 16px;
-  height: 16px;
-}
-
-.feature-command .icon-check {
-  display: none;
-  width: 16px;
-  height: 16px;
-}
-
-.feature-command[data-copied] .icon-copy {
-  display: none;
-}
-
-.feature-command[data-copied] .icon-check {
-  display: block;
 }
 
 @media (max-width: 36rem) {

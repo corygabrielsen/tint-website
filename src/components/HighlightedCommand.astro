@@ -1,0 +1,45 @@
+---
+// Shiki-tokenized shell command, rendered as content valid inside <button>.
+//
+// Two non-obvious choices baked in:
+//
+// 1. Full-block (non-inline) shiki tokenization. Inline mode would tokenize
+//    each line independently, which mis-colors heredoc terminators and
+//    bodies as standalone commands. Full-block sees the whole snippet so
+//    constructs like `<<'EOF' … EOF` and pipelines parse correctly.
+//
+// 2. <pre> rewritten to <span> via a transformer. Default shiki output
+//    wraps the highlighted code in <pre>, which is flow content and
+//    forbidden inside <button>. <span> is phrasing content and allowed.
+//    `white-space: pre-wrap` on .command-body (in global.css) preserves
+//    the literal newlines shiki emits between line spans.
+//
+// Consumers style the .command-body class in global.css so there is one
+// source of truth across InstallWidget panels, per-feature buttons, and
+// any future copy surface.
+import { Code } from 'astro:components';
+import type { ShikiTransformer } from 'shiki';
+
+interface Props {
+  code: string;
+}
+
+const { code } = Astro.props;
+
+const preToSpan: ShikiTransformer = {
+  pre(node) {
+    node.tagName = 'span';
+    if (node.properties && 'tabindex' in node.properties) {
+      delete node.properties.tabindex;
+    }
+  },
+};
+---
+
+<Code
+  code={code}
+  lang="sh"
+  theme="css-variables"
+  class="command-body"
+  transformers={[preToSpan]}
+/>

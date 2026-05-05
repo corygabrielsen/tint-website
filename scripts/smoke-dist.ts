@@ -439,7 +439,8 @@ function checkCopyButtons(html: string, scripts: string[]): void {
       /<button\b(?:"[^"]*"|'[^']*'|[^'">])*\bdata-copy\b(?:"[^"]*"|'[^']*'|[^'">])*>[\s\S]*?<\/button>/g,
     ),
   ].map((m) => m[0]);
-  check(buttons.length === 6, `expected 6 copy buttons, found ${buttons.length}`);
+  // Expected: 2 install (brew + curl) + 1 apply-by-name + 2 cd-hook (bash + zsh tabs) + 1 picker + 1 custom-theme.
+  check(buttons.length === 7, `expected 7 copy buttons, found ${buttons.length}`);
 
   for (const [i, button] of buttons.entries()) {
     const tag = button.match(/<button\b(?:"[^"]*"|'[^']*'|[^'">])*>/)?.[0] ?? '';
@@ -461,30 +462,44 @@ function checkCopyButtons(html: string, scripts: string[]): void {
     );
   }
 
+  // Single page-wide wiring keyed on the data-copy contract: every
+  // CopyCommand instance picks up the handler regardless of where it's
+  // used. The shared controller lives in scripts/copy-buttons.ts and is
+  // hoisted by Astro from CopyCommand's <script>.
   const hasSharedController = scripts.some(
     (s) => s.includes('clipboard.writeText') && s.includes('data-copy-announce'),
   );
-  const hasInstallWiring = scripts.some((s) => s.includes('.install-widget [data-copy]'));
-  const hasFeatureWiring = scripts.some((s) => s.includes('[data-feature-copy]'));
+  // Match the selector as a string literal, not the call expression —
+  // production builds are minified, so the function name becomes a
+  // single letter, but the selector survives as a verbatim string.
+  const hasCopyWiring = scripts.some(
+    (s) => s.includes('"[data-copy]"') || s.includes("'[data-copy]'"),
+  );
   check(hasSharedController, 'no bundled script contains the shared copy-button controller');
-  check(hasInstallWiring, 'no bundled script wires install-widget copy buttons');
-  check(hasFeatureWiring, 'no bundled script wires feature-command copy buttons');
+  check(hasCopyWiring, 'no bundled script wires [data-copy] buttons');
 }
 
 function checkFeatureDemos(html: string): void {
-  const expectedCommands = [
-    'tint dracula',
-    'tint',
-    'eval "$(tint hook bash)"\necho dracula > .tint',
-    [
-      'mkdir -p ~/.config/tint/themes',
-      "cat > ~/.config/tint/themes/matrix.theme <<'EOF'",
-      'matrix:#000000:#00ff00:#000000:#008800:#00ff00:#aaff00:#005533:#00aa55:#00ff66:#88ff99:#003311:#00bb22:#33ff44:#bbff44:#006644:#00cc66:#44ff77:#ddffdd',
-      'EOF',
-      'tint matrix',
-    ].join('\n'),
+  // Each section's expected SET of data-code values. Most features have
+  // one CopyCommand; the cd-hook feature uses an InstallWidget pair so
+  // its panels emit two — bash and zsh, identical bodies, eval target
+  // differs. Order mirrors the rendered section order (apply-by-name,
+  // cd-hook, picker, custom-theme).
+  const cdHookBody = `mkdir -p /tmp/tinted && echo nord > /tmp/tinted/.tint\ncd /tmp/tinted`;
+  const customThemeBody = [
+    'mkdir -p ~/.config/tint/themes',
+    "cat > ~/.config/tint/themes/matrix.theme <<'EOF'",
+    'matrix:#000000:#00ff00:#000000:#008800:#00ff00:#aaff00:#005533:#00aa55:#00ff66:#88ff99:#003311:#00bb22:#33ff44:#bbff44:#006644:#00cc66:#44ff77:#ddffdd',
+    'EOF',
+    'tint matrix',
+  ].join('\n');
+  const expectedCommands: ReadonlyArray<readonly string[]> = [
+    ['tint dracula'],
+    [`eval "$(tint hook bash)"\n${cdHookBody}`, `eval "$(tint hook zsh)"\n${cdHookBody}`],
+    ['tint'],
+    [customThemeBody],
   ];
-  const expectedInlineCode = [[], ['tint'], ['.tint'], ['.theme']];
+  const expectedInlineCode = [[], ['.tint'], ['tint'], ['.theme']];
   const sections = [
     ...html.matchAll(/<section\b[^>]*\bdata-feature-demo\b[^>]*>[\s\S]*?<\/section>/g),
   ].map((m) => m[0]);
@@ -505,23 +520,28 @@ function checkFeatureDemos(html: string): void {
       );
     }
     check(/<video\b/.test(section), `feature demo ${i}: missing video`);
-    check(/\bdata-feature-command\b/.test(section), `feature demo ${i}: missing command block`);
-    const copyButton = section.match(
-      /<button\b(?:"[^"]*"|'[^']*'|[^'">])*\bdata-feature-copy\b(?:"[^"]*"|'[^']*'|[^'">])*>/,
-    )?.[0];
-    check(Boolean(copyButton), `feature demo ${i}: missing copy button`);
-    if (copyButton) {
-      const dataCode = getAttr(copyButton, 'data-code');
-      check(Boolean(dataCode), `feature demo ${i}: copy button missing data-code`);
-      if (dataCode) {
-        const decodedCode = decodeHtmlEntities(dataCode);
-        check(
-          decodedCode === expectedCommands[i],
-          `feature demo ${i}: command mismatch "${decodedCode}"`,
-        );
-        check(/\bdata-copy\b/.test(copyButton), `feature demo ${i}: copy button missing data-copy`);
-      }
-    }
+
+    // Collect every data-code in this section and assert the set matches
+    // what we expect. Tabbed widgets contribute multiple entries; plain
+    // CopyCommand cards contribute one. Set-equality covers both shapes
+    // without the test caring whether the rendering is tabbed or not.
+    const buttons = [
+      ...section.matchAll(
+        /<button\b(?:"[^"]*"|'[^']*'|[^'">])*\bdata-copy\b(?:"[^"]*"|'[^']*'|[^'">])*>/g,
+      ),
+    ].map((m) => m[0]);
+    check(buttons.length > 0, `feature demo ${i}: no copy buttons`);
+
+    const dataCodes = buttons
+      .map((btn) => getAttr(btn, 'data-code'))
+      .filter((v): v is string => Boolean(v))
+      .map(decodeHtmlEntities);
+    const want = [...(expectedCommands[i] ?? [])].sort();
+    const got = [...dataCodes].sort();
+    check(
+      want.length === got.length && want.every((v, j) => v === got[j]),
+      `feature demo ${i}: command set mismatch\n  want: ${JSON.stringify(want)}\n  got:  ${JSON.stringify(got)}`,
+    );
   }
 }
 
@@ -583,7 +603,7 @@ function extractInstallWidget(html: string): string | undefined {
 // the rendered buttons. Without this last check, a selector or bundling
 // regression would ship silently because nothing exercises the handler
 // at runtime in CI.
-function checkInstallWidget(html: string, scripts: string[]): void {
+function checkInstallWidget(html: string): void {
   const widget = extractInstallWidget(html);
   check(Boolean(widget), 'install-widget fieldset not found in rendered HTML');
   if (!widget) return;
@@ -622,15 +642,12 @@ function checkInstallWidget(html: string, scripts: string[]): void {
     `no install button references https://tint.sh/tint — install URL drift (saw: ${installUrls.join(' | ')})`,
   );
 
-  // Match the literal compound selector `.install-widget [data-copy]`,
-  // not the two substrings independently. This protects the install
-  // widget's selector while `checkCopyButtons` verifies the shared
-  // controller used by every copy button on the page.
-  const wired = scripts.some((s) => /\.install-widget\s+\[data-copy\]/.test(s));
-  check(
-    wired,
-    'no inlined <script> references the `.install-widget [data-copy]` selector — script bundling or selector drift',
-  );
+  // The install-widget panels are CopyCommand instances; copy wiring is
+  // the page-wide `[data-copy]` selector hoisted from CopyCommand's
+  // <script>. `checkCopyButtons` verifies that selector is present in
+  // the bundle, so we don't re-check it here — the widget's contract
+  // for this layer is just that it renders the right buttons with the
+  // right `data-copy` attribute, which the buttons-loop above asserts.
 }
 
 // Every page must include the Plausible snippet. The snippet is
@@ -765,7 +782,7 @@ for (const videoSrc of videoSrcs) {
   await checkNonEmptyFile(videoSrc);
 }
 
-checkInstallWidget(html, pageScripts);
+checkInstallWidget(html);
 checkCopyButtons(html, pageScripts);
 await checkVideoElements(html);
 checkDemoFallbackLinks(html);

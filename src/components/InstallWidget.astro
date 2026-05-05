@@ -1,43 +1,24 @@
 ---
-// Install command widget: a tabbed code block where each tab body is a
-// shiki-tokenized <code> that doubles as a click-to-copy button.
+// Tabbed copy-command widget. N tabs, each panel a CopyCommand.
 //
 // - Tabs are driven by hidden radio inputs + a `:has(input:nth-of-type(N):checked)`
 //   selector chain, so active-state switching is pure CSS with no JS.
-// - The whole code+icon row is a single <button data-copy data-code=…>.
-//   Clicking anywhere on the row copies the verbatim command from
-//   `data-code` (NOT from textContent — shiki tokenizes the source into
-//   spans whose textContent collapses runs of significant whitespace, and
-//   we want the clipboard payload to round-trip the original `code` prop
-//   byte-for-byte so commands with intentional spacing aren't corrupted).
-// - The copy/check icon swap is the visual feedback; an sr-only
-//   aria-live region announces "Copied" / "Copy failed" so screen-reader
-//   users get the same feedback. The button's aria-label includes the full
-//   command so AT users can review the payload before activating, instead
-//   of hearing only a generic "Copy command" label that hides what's about
-//   to land in their clipboard.
-// - `:focus-visible` paints a 2px outline on the row so keyboard users see
-//   which command currently has focus (the `all: unset` reset on the
-//   button strips the browser default focus ring and we have to put one
-//   back).
-// - Long commands wrap terminal-style (any character is a valid break
-//   point) instead of producing a horizontal scrollbar inside the click
-//   row, so users can read the entire command before pasting it into a
-//   shell.
+// - Tabs are pinned to exactly two for now: the active-state CSS uses
+//   :nth-of-type(1) and :nth-of-type(2) selectors. A third tab needs
+//   matching :nth-of-type(3) rules below; pinning the type rather than
+//   silently rendering a broken third tab.
+// - Each panel delegates to <CopyCommand>, which owns the click-to-copy
+//   button, the highlighted command body, and the icon column. Variant
+//   is `panel` so the button stays transparent — the fieldset draws the
+//   frame.
 //
-// HTML validity note: <button>'s WHATWG content model is "phrasing content,
-// no interactive descendants, no descendant with tabindex". The default
-// <Code> output is <pre tabindex="0"><code>…</code></pre>, which violates
-// both clauses (<pre> is flow content; tabindex on a descendant is
-// forbidden). Two surgical fixes flip it to a valid button child:
-//   1. `inline` makes Astro emit <code>…</code> directly (no <pre>).
-//      <code> is phrasing content, so it's allowed inside <button>.
-//   2. `stripTabindex` deletes the shiki-default `tabindex="0"` from the
-//      wrapper element; transformers run after Astro's pre→code rename, so
-//      the hook receives the renamed node and we mutate it in place.
+// Despite the name, this component is not install-specific: the cd-hook
+// feature card uses the same widget for its bash/zsh tab pair. The name
+// stays for now since the smoke test (checkInstallWidget) extracts the
+// rendered fieldset via class .install-widget; rename together when the
+// time is right.
 import { randomUUID } from 'node:crypto';
-import { Code } from 'astro:components';
-import type { ShikiTransformer } from 'shiki';
+import CopyCommand from './CopyCommand.astro';
 
 interface Command {
   // Visible tab label only. NOT used as a DOM identifier — input ids and
@@ -48,10 +29,6 @@ interface Command {
 }
 
 interface Props {
-  // Tuple of exactly two: the tab-selection CSS uses :nth-of-type(1) and
-  // :nth-of-type(2) selectors (see the .install-widget:has(...) blocks
-  // below). A third tab would need matching :nth-of-type(3) rules, so we
-  // pin the type rather than silently render a broken third tab.
   commands: readonly [Command, Command];
   // Unique id for this widget instance. Defaults to a per-render UUID so
   // two widgets on the same page don't collide on the radio name and the
@@ -61,26 +38,10 @@ interface Props {
 }
 
 const { commands, id = `install-widget-${randomUUID()}` } = Astro.props;
-
-// Convert shiki's outer <pre> wrapper into a <span>. <pre> is flow content
-// and forbidden inside <button>; <span> is phrasing content and allowed.
-// We need full-block (non-inline) shiki so multi-line tokenization sees
-// constructs like heredocs as a whole — inline mode would tokenize each
-// line independently, which mis-colors EOF terminators and heredoc bodies
-// as standalone commands. We also drop tabindex (default-set by shiki, but
-// invalid on <span> and on any descendant of <button>).
-const preToSpan: ShikiTransformer = {
-  pre(node) {
-    node.tagName = 'span';
-    if (node.properties && 'tabindex' in node.properties) {
-      delete node.properties.tabindex;
-    }
-  },
-};
 ---
 
 <fieldset class="install-widget" id={id}>
-  <legend class="sr-only">Install method</legend>
+  <legend class="sr-only">Choose</legend>
   {/* Three separate maps so the radios, labels, and panels stay in stable
       source order: the :nth-of-type / :nth-child selectors below match by
       position, not id, so a single combined loop would shuffle the order
@@ -102,50 +63,7 @@ const preToSpan: ShikiTransformer = {
   <div class="panels">
     {commands.map((cmd) => (
       <div class="panel">
-        <button
-          data-copy
-          data-code={cmd.code}
-          type="button"
-          class="command"
-          aria-label={`Copy ${cmd.code}`}
-        >
-          <Code
-            code={cmd.code}
-            lang="sh"
-            theme="css-variables"
-            class="command-body"
-            transformers={[preToSpan]}
-          />
-          <span class="copy-status">
-            <svg
-              class="icon-copy"
-              width="16"
-              height="16"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              stroke-width="1.5"
-              stroke-linecap="square"
-              aria-hidden="true"
-            >
-              <path d="M8.75 8.75V2.75H21.25V15.25H15.25M15.25 8.75H2.75V21.25H15.25V8.75Z" />
-            </svg>
-            <svg
-              class="icon-check"
-              width="16"
-              height="16"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              stroke-width="2"
-              stroke-linecap="square"
-              aria-hidden="true"
-            >
-              <path d="M2.75 15.0938L9 20.25L21.25 3.75" />
-            </svg>
-            <span class="copy-announce sr-only" data-copy-announce aria-live="polite"></span>
-          </span>
-        </button>
+        <CopyCommand code={cmd.code} variant="panel" />
       </div>
     ))}
   </div>
@@ -198,8 +116,8 @@ const preToSpan: ShikiTransformer = {
     color: var(--fg);
   }
 
-  /* Active tab "pops out" of the panel by switching to the page bg. Extend
-     with another :nth pair to add a third tab. */
+  /* Active tab "pops out" of the panel by switching to the page bg.
+     Extend with another :nth pair to add a third tab. */
   .install-widget:has(input:nth-of-type(1):checked) .tabs label:nth-child(1),
   .install-widget:has(input:nth-of-type(2):checked) .tabs label:nth-child(2) {
     color: var(--fg);
@@ -225,97 +143,4 @@ const preToSpan: ShikiTransformer = {
       display: block;
     }
   }
-
-  /* The clickable command row spans the full panel and lays the body next
-     to the icon column. `all: unset` strips browser button styles; we then
-     pin box-sizing back to border-box (the global * reset is undone by the
-     `all: unset` cascade) and re-impose the panel typography on the inner
-     <code> below. */
-  .install-widget .command {
-    all: unset;
-    box-sizing: border-box;
-    display: flex;
-    width: 100%;
-    max-width: 100%;
-    cursor: pointer;
-    /* Anchor the icon to the top of the row so it sits beside the first
-       line of long wrapped commands instead of drifting to the visual
-       middle of a multi-line block. */
-    align-items: flex-start;
-    gap: 0.75rem;
-    padding: 0.75rem 1rem;
-    color: var(--fg);
-    font-family: var(--mono);
-  }
-
-  .install-widget .command:hover {
-    background: color-mix(in srgb, var(--code-bg) 90%, var(--fg) 10%);
-  }
-
-  /* `all: unset` above strips the browser default focus ring, so put one
-     back. Negative offset matches the tab focus rule a few blocks up so
-     keyboard focus styling reads as one consistent treatment across the
-     widget. */
-  .install-widget .command:focus-visible {
-    outline: 2px solid var(--fg);
-    outline-offset: -2px;
-  }
-
-  /* The script slot is the <span> shiki produces (after preToSpan rewires
-     the wrapper from <pre>) containing the tokenized <code>. `flex: 1 1 0;
-     min-width: 0` lets it shrink below intrinsic content width so the
-     wrap rules below break long URLs at the row's right edge instead of
-     pushing the icon off-screen. `pre-wrap` preserves the literal
-     newlines shiki emits between lines without forcing a horizontal
-     scrollbar; `break-all` lets long URLs and paths split mid-character —
-     honesty over compactness, since `…`-style truncation obscures what
-     users are piping into a shell. shiki's astro-code class sets a
-     background colour by default; we override to transparent so the row
-     hover/focus states paint the whole button uniformly. */
-  .install-widget .command-body {
-    display: block;
-    flex: 1 1 0;
-    min-width: 0;
-    font-family: inherit;
-    font-size: 0.875rem;
-    line-height: 1.5;
-    white-space: pre-wrap;
-    word-break: break-all;
-    background: transparent;
-  }
-
-  .install-widget .copy-status {
-    display: inline-flex;
-    align-items: center;
-    flex-shrink: 0;
-  }
-
-  /* Icon swap is driven by the [data-copied] attribute the script toggles
-     on the parent <button data-copy>. */
-  .install-widget .icon-copy {
-    display: block;
-    width: 16px;
-    height: 16px;
-    color: color-mix(in srgb, var(--muted) 55%, var(--bg) 45%);
-  }
-
-  .install-widget [data-copied] .icon-copy {
-    display: none;
-  }
-
-  .install-widget .icon-check {
-    display: none;
-    width: 16px;
-    height: 16px;
-  }
-
-  .install-widget [data-copied] .icon-check {
-    display: block;
-  }
 </style>
-
-<script>
-  import { wireCopyButtons } from '~/scripts/copy-buttons';
-
-  wireCopyButtons('.install-widget [data-copy]');
-</script>

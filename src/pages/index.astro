@@ -1,25 +1,8 @@
 ---
 import Layout from '~/layouts/Layout.astro';
-import { Code } from 'astro:components';
-import type { ShikiTransformer } from 'shiki';
 import GitHubMark from '~/components/GitHubMark.astro';
 import InstallWidget from '~/components/InstallWidget.astro';
-
-// Convert shiki's outer <pre> wrapper into a <span> so the highlighted
-// code is valid inside the per-feature <button>. Full-block (non-inline)
-// shiki gives correct multi-line tokenization for constructs like
-// heredocs — inline-per-line would mis-tag the EOF terminator and
-// heredoc body as standalone commands. Same transformer as
-// InstallWidget; kept inline here instead of factoring out for a
-// six-line helper.
-const preToSpan: ShikiTransformer = {
-  pre(node) {
-    node.tagName = 'span';
-    if (node.properties && 'tabindex' in node.properties) {
-      delete node.properties.tabindex;
-    }
-  },
-};
+import CopyCommand from '~/components/CopyCommand.astro';
 
 const repoUrl = 'https://github.com/corygabrielsen/tint';
 
@@ -80,7 +63,7 @@ const featureDemos = [
   },
   {
     id: 'cd-hook',
-    title: 'Switch themes when changing directories',
+    title: 'Automatically switch themes when changing directories',
     description: 'Install the shell hook once, then add `.tint` files to automatically switch themes when changing directories. Supports Bash and Zsh.',
     // bash and zsh emit different hook scripts, so the eval target differs
     // between tabs while the rest of the snippet is identical.
@@ -203,52 +186,7 @@ function inlineDescriptionParts(text: string): InlineDescriptionPart[] {
             {demo.commands ? (
               <InstallWidget commands={demo.commands} id={`cmd-${demo.id}`} />
             ) : (
-              <button
-                type="button"
-                class="feature-command"
-                data-feature-command
-                data-feature-copy
-                data-copy
-                data-code={demo.command}
-                aria-label={`Copy ${demo.command}`}
-              >
-                <Code
-                  code={demo.command}
-                  lang="sh"
-                  theme="css-variables"
-                  class="command-body"
-                  transformers={[preToSpan]}
-                />
-                <span class="feature-copy-status">
-                  <svg
-                    class="icon-copy"
-                    width="16"
-                    height="16"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    stroke-width="1.5"
-                    stroke-linecap="square"
-                    aria-hidden="true"
-                  >
-                    <path d="M8.75 8.75V2.75H21.25V15.25H15.25M15.25 8.75H2.75V21.25H15.25V8.75Z" />
-                  </svg>
-                  <svg
-                    class="icon-check"
-                    width="16"
-                    height="16"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    stroke-width="2"
-                    stroke-linecap="square"
-                    aria-hidden="true"
-                  >
-                    <path d="M2.75 15.0938L9 20.25L21.25 3.75" />
-                  </svg>
-                  <span class="feature-copy-announce sr-only" data-copy-announce aria-live="polite"></span>
-                </span>
-              </button>
+              <CopyCommand code={demo.command} variant="card" />
             )}
           </div>
           <div class="demo-frame" data-demo-frame>
@@ -293,14 +231,6 @@ function inlineDescriptionParts(text: string): InlineDescriptionPart[] {
 
     <p class="copyright">© 2026 Cory Gabrielsen</p>
   </main>
-
-<script>
-  import { wireCopyButtons } from '~/scripts/copy-buttons';
-
-  wireCopyButtons('[data-feature-copy]', {
-    errorPrefix: 'Feature command clipboard write failed',
-  });
-</script>
 
 <script>
   import { wireDemoVideos } from '~/scripts/demo-videos';
