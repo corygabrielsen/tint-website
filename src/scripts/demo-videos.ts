@@ -195,9 +195,18 @@ export function wireDemoVideos(): void {
   }
 
   function toggleDemoVideo(video: HTMLVideoElement): void {
-    const clickedWasPlaying = video === activeDemoVideo && !isDemoPlaybackPaused;
-    manualDemoVideo = video;
-    isDemoPlaybackPaused = clickedWasPlaying;
+    if (isDemoPlaybackPaused) {
+      isDemoPlaybackPaused = false;
+      updateDemoPlayback();
+      return;
+    }
+
+    if (video === activeDemoVideo) {
+      manualDemoVideo = video;
+      isDemoPlaybackPaused = true;
+    } else {
+      manualDemoVideo = video;
+    }
     updateDemoPlayback();
   }
 

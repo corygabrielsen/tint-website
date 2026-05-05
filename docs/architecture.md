@@ -72,7 +72,7 @@ Both `wrangler deploy` and `wrangler versions upload` invoke the build via [`wra
 
 - **One global player.** All homepage demo videos share one playback state. At most one video may play at a time; every inactive video is paused and reset to frame zero when playback is not globally paused. Enforced by [`scripts/smoke-demo-videos.ts`](../scripts/smoke-demo-videos.ts).
 - **Viewport focus chooses the active video.** The controller scores each video by visible area and distance from the viewport center. A minimum visible ratio rejects barely-visible videos, and scroll clears any manual override so the most in-focus video resumes ownership.
-- **Click/keyboard pause is global.** Activating the currently-playing video pauses all videos. Activating a paused or inactive video resumes playback with that video as the manual active video. While globally paused, every demo frame carries `data-demo-paused` so every visible video shows the play overlay; the overlay must not jump between sections as the viewer scrolls.
+- **Click/keyboard pause is global.** Activating the currently-playing video pauses all videos. While globally paused, activating any demo frame resumes the currently active/focused video; it must not switch to the clicked frame just because every frame shows a play overlay. Activating an inactive video only selects it while playback is already running. While globally paused, every demo frame carries `data-demo-paused` so every visible video shows the play overlay; the overlay must not jump between sections as the viewer scrolls.
 - **Reduced motion starts paused.** `prefers-reduced-motion: reduce` seeds the page-load default to paused, but a user click can still opt into playback. A later reduced-motion change pauses globally. The listener supports both modern `addEventListener('change', ...)` and legacy WebKit `addListener(...)`.
 - **Poster handoff is conservative.** Each video has a poster shim image above the `<video>` to avoid iPhone Safari's blank white pre-paint box. The shim is released only for the active unpaused video after readiness and two animation frames; stale scheduled releases are canceled when a video loses ownership. Visibility changes reset videos and restore poster shim state.
 
@@ -116,7 +116,8 @@ The harness imports the same `wireDemoVideos()` function the homepage runs, then
 - Initial viewport focus upgrades frames only after JS wiring, selects the most in-focus video, promotes only that video to `preload="auto"`, and plays exactly one video.
 - Activating the currently-playing video pauses globally; every frame gets the play overlay state and accessible "Play" label.
 - Keyboard activation mirrors click activation and prevents Space from scrolling the page.
-- Activating another paused/inactive video resumes globally with that video as the manual active video.
+- Activating another frame while paused resumes globally without switching away from the active/focused video.
+- Activating an inactive frame while playback is running intentionally selects that video as the manual active video.
 - Scrolling clears the manual override and returns ownership to the viewport-focused video.
 - Reduced-motion preference starts paused, remains user-overridable, and later preference changes pause globally.
 - Legacy media-query listeners are installed if old WebKit rejects the modern listener API.

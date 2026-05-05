@@ -347,8 +347,9 @@ async function testViewportFocusAndSinglePlayback(): Promise<void> {
   assert(frame1.getAttribute('aria-pressed') === 'true', 'active frame should be pressed');
 }
 
-async function testGlobalPauseAndManualResume(): Promise<void> {
+async function testGlobalPauseAndResume(): Promise<void> {
   const harness = createHarness([rect(250), rect(620)]);
+  const video0 = item(harness.videos, 0, 'video');
   const video1 = item(harness.videos, 1, 'video');
   const frame0 = item(harness.frames, 0, 'frame');
   const frame1 = item(harness.frames, 1, 'frame');
@@ -365,13 +366,18 @@ async function testGlobalPauseAndManualResume(): Promise<void> {
   await Promise.resolve();
 
   assert(keyEvent.defaultPrevented, 'keyboard activation should prevent page scroll on Space');
-  assert(playingVideos(harness.videos).length === 1, 'manual resume should play exactly one video');
-  assert(!video1.paused, 'manual resume should play the activated video');
+  assert(playingVideos(harness.videos).length === 1, 'global resume should play exactly one video');
+  assert(!video0.paused, 'global resume should keep the active video selected');
+  assert(video1.paused, 'global resume must not switch to the clicked paused overlay');
   assert(
     harness.frames.every((frame) => !frame.hasAttribute('data-demo-paused')),
-    'manual resume should clear the global paused overlay from every frame',
+    'global resume should clear the global paused overlay from every frame',
   );
-  assert(frame1.getAttribute('aria-pressed') === 'true', 'resumed frame should be pressed');
+  assert(frame0.getAttribute('aria-pressed') === 'true', 'resumed active frame should be pressed');
+  assert(
+    frame1.getAttribute('aria-pressed') === 'false',
+    'clicked inactive overlay should not become pressed on global resume',
+  );
 }
 
 async function testScrollClearsManualOverride(): Promise<void> {
@@ -397,15 +403,17 @@ async function testScrollClearsManualOverride(): Promise<void> {
 async function testReducedMotionDefaultAndChange(): Promise<void> {
   const harness = createHarness([rect(250), rect(620)], { reducedMotion: true });
   const video0 = item(harness.videos, 0, 'video');
-  const frame0 = item(harness.frames, 0, 'frame');
+  const video1 = item(harness.videos, 1, 'video');
+  const frame1 = item(harness.frames, 1, 'frame');
   await runInitialPlayback(harness);
 
   assert(playingVideos(harness.videos).length === 0, 'reduced motion should start paused');
   assertGlobalPausedOverlay(harness.frames);
 
-  frame0.dispatch('click');
+  frame1.dispatch('click');
   await Promise.resolve();
   assert(!video0.paused, 'click should let reduced-motion users opt into playback');
+  assert(video1.paused, 'reduced-motion opt-in must not switch to the clicked paused overlay');
   assert(
     harness.frames.every((frame) => !frame.hasAttribute('data-demo-paused')),
     'user opt-in should clear paused overlays',
@@ -519,7 +527,7 @@ async function runTest(name: string, test: () => Promise<void>): Promise<void> {
 }
 
 await runTest('viewport focus and single playback', testViewportFocusAndSinglePlayback);
-await runTest('global pause and manual resume', testGlobalPauseAndManualResume);
+await runTest('global pause and resume', testGlobalPauseAndResume);
 await runTest('scroll clears manual override', testScrollClearsManualOverride);
 await runTest('reduced motion default and change', testReducedMotionDefaultAndChange);
 await runTest('legacy reduced-motion listener fallback', testLegacyReducedMotionListenerFallback);
