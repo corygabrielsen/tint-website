@@ -17,7 +17,7 @@ Cloudflare Workers Builds            Cloudflare Workers Builds
   └─ build.command:                    └─ build.command:
        npm run check                        npm run check
        (typecheck + lint + build +          (single source of truth
-        smoke-dist + smoke-worker)           in package.json)
+        smoke suite)                         in package.json)
        │                                       │
        ▼                                       ▼
 Cloudflare Worker (production)        Worker version (preview alias)
@@ -68,6 +68,14 @@ Both `wrangler deploy` and `wrangler versions upload` invoke the build via [`wra
 
 - **Curl URL is the short URL.** Display value is `https://tint.sh/tint`. The widget MUST NOT display the raw GitHub URL: it both bloats the displayed command and bypasses the `tint_download` event.
 
+## Demo videos ([`src/scripts/demo-videos.ts`](../src/scripts/demo-videos.ts))
+
+- **One global player.** All homepage demo videos share one playback state. At most one video may play at a time; every inactive video is paused and reset to frame zero when playback is not globally paused. Enforced by [`scripts/smoke-demo-videos.ts`](../scripts/smoke-demo-videos.ts).
+- **Viewport focus chooses the active video.** The controller scores each video by visible area and distance from the viewport center. A minimum visible ratio rejects barely-visible videos, and scroll clears any manual override so the most in-focus video resumes ownership.
+- **Click/keyboard pause is global.** Activating the currently-playing video pauses all videos. Activating a paused or inactive video resumes playback with that video as the manual active video. While globally paused, every demo frame carries `data-demo-paused` so every visible video shows the play overlay; the overlay must not jump between sections as the viewer scrolls.
+- **Reduced motion starts paused.** `prefers-reduced-motion: reduce` seeds the page-load default to paused, but a user click can still opt into playback. A later reduced-motion change pauses globally. The listener supports both modern `addEventListener('change', ...)` and legacy WebKit `addListener(...)`.
+- **Poster handoff is conservative.** Each video has a poster shim image above the `<video>` to avoid iPhone Safari's blank white pre-paint box. The shim is released only for the active unpaused video after readiness and two animation frames; stale scheduled releases are canceled when a video loses ownership. Visibility changes reset videos and restore poster shim state.
+
 ## Deploy pipeline
 
 - **Single automated deploy path.** **(out-of-band)** Cloudflare Workers Builds is the only automated deployer — both for production (master) and per-PR previews. There is no GitHub Action deploy job and no automation in this repo consumes `CLOUDFLARE_API_TOKEN`. Adding a second _automated_ deployer (e.g., a re-introduced GitHub Action that calls `wrangler deploy`) would race Builds and is forbidden. Verify by: in the Cloudflare dashboard for this Worker, the "Settings → Build" panel shows this repository connected; no `.github/workflows/deploy.yml` exists in the repo.
@@ -90,14 +98,30 @@ Both `wrangler deploy` and `wrangler versions upload` invoke the build via [`wra
 
 ## Smoke test as executable spec
 
-The smoke suite is two complementary files invoked by `npm run smoke` (which runs as the last step of `npm run check`). Both files are the on-disk contract for the invariants this document declares — every invariant marked "enforced by …" above has an assertion in one of them. Adding a new invariant means adding a `check(...)` call; removing one removes a guarantee.
+The smoke suite is invoked by `npm run smoke` (which runs as the last step of `npm run check`). These files are the on-disk contract for the invariants this document declares — every invariant marked "enforced by …" above has an assertion in one of them. Adding a new invariant means adding an assertion; removing one removes a guarantee.
 
 The split is by the kind of evidence each file consults:
 
+- [`scripts/smoke-copy-buttons.ts`](../scripts/smoke-copy-buttons.ts) — **behavioral tests on the shared copy controller**.
+- [`scripts/smoke-demo-videos.ts`](../scripts/smoke-demo-videos.ts) — **behavioral tests on the demo-video controller** (mocks browser layout, RAF, media queries, visibility, and video playback).
 - [`scripts/smoke-dist.ts`](../scripts/smoke-dist.ts) — **static analysis on the build output and config files** (`dist/` + `wrangler.jsonc`).
 - [`scripts/smoke-worker.ts`](../scripts/smoke-worker.ts) — **behavioral tests on the Worker code** (imports `worker/index.ts`, mocks `globalThis.fetch`, `env.ASSETS`, and `ctx.waitUntil`, and exercises the Worker against canonical and preview hostnames).
 
-Together they cover the full surface — the Worker's runtime behavior cannot be verified statically without false-passing refactors that move a gate into a dead branch (Copilot caught exactly this on an earlier regex-only version), and the static build output cannot be verified by behavior tests.
+Together they cover the full surface — the Worker's runtime behavior cannot be verified statically without false-passing refactors that move a gate into a dead branch (Copilot caught exactly this on an earlier regex-only version), the video player's scroll/focus state machine cannot be verified with bundled-string checks, and the static build output cannot be verified by behavior tests.
+
+### `smoke-demo-videos.ts` — behavioral tests against `src/scripts/demo-videos.ts`
+
+The harness imports the same `wireDemoVideos()` function the homepage runs, then supplies fake `document`, `window`, `requestAnimationFrame`, `matchMedia`, `IntersectionObserver`, and `<video>` objects. It tests the UI contract as state transitions:
+
+- Initial viewport focus upgrades frames only after JS wiring, selects the most in-focus video, promotes only that video to `preload="auto"`, and plays exactly one video.
+- Activating the currently-playing video pauses globally; every frame gets the play overlay state and accessible "Play" label.
+- Keyboard activation mirrors click activation and prevents Space from scrolling the page.
+- Activating another paused/inactive video resumes globally with that video as the manual active video.
+- Scrolling clears the manual override and returns ownership to the viewport-focused video.
+- Reduced-motion preference starts paused, remains user-overridable, and later preference changes pause globally.
+- Legacy media-query listeners are installed if old WebKit rejects the modern listener API.
+- Poster shims release only after the active video has painted for two RAFs; stale releases cannot mark an inactive frame ready.
+- `document.visibilityState === 'hidden'` pauses, resets, clears active state, and restores poster shims.
 
 ### `smoke-dist.ts` — static checks against `dist/` and `wrangler.jsonc`
 
@@ -122,11 +146,12 @@ Together they cover the full surface — the Worker's runtime behavior cannot be
 **Asset existence** (`checkFaviconLinks`, `checkNonEmptyFile`)
 
 - Every `<link rel="icon">` href resolves to an existing non-empty file in `dist/`.
-- `demo.mp4`, `demo.gif`, `robots.txt`, `sitemap-index.xml` exist and are non-empty.
+- Every homepage video `src` and `poster` resolves to an existing non-empty root-local file in `dist/`.
+- Legacy GIF demo assets, `robots.txt`, and `sitemap-index.xml` exist and are non-empty.
 
 **Path correctness**
 
-- Homepage `<video>` src is relative (no leading slash, no scheme) and resolves to `/demo.mp4` under `https://tint.sh/`.
+- Homepage `<video>` src/poster/fallback paths are relative root-local filenames: no leading slash, scheme, subdirectory, or dot segment.
 
 **Route shadowing guards** (`checkAbsent`, ENOENT-only success)
 
