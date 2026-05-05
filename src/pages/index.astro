@@ -46,6 +46,75 @@ const themeColors = [
   '#AC5396',
   '#AC5374',
 ];
+
+const featureDemos = [
+  {
+    id: 'apply-by-name',
+    title: 'Apply a theme by name',
+    description: 'Use any theme directly from your shell. Instantly.',
+    command: 'tint dracula',
+    src: 'demo-cli.mp4',
+    poster: 'demo-cli-poster.png',
+    ariaLabel: 'Applying built-in tint themes by name',
+  },
+  {
+    id: 'picker',
+    title: 'Browse and select themes interactively',
+    description: 'Run `tint` with no arguments to scroll and select themes interactively in your terminal.',
+    command: 'tint',
+    src: 'demo-picker.mp4',
+    poster: 'demo-picker-poster.png',
+    ariaLabel: 'Selecting a tint theme in the interactive picker',
+  },
+  {
+    id: 'cd-hook',
+    title: 'Switch themes when changing directories',
+    description: 'Install the shell hook once, then add `.tint` files to automatically switch themes when changing directories. Supports Bash and Zsh.',
+    command: `eval "$(tint hook bash)"
+echo dracula > .tint`,
+    src: 'demo-cd-hook.mp4',
+    poster: 'demo-cd-hook-poster.png',
+    ariaLabel: 'Automatically applying tint themes when changing directories',
+  },
+  {
+    id: 'custom-theme',
+    title: 'Use custom themes',
+    description: 'Add custom themes to tint’s XDG themes directory, then use them like built-in themes. Each `.theme` file defines one or more themes.',
+    command: `mkdir -p ~/.config/tint/themes
+cat > ~/.config/tint/themes/matrix.theme <<'EOF'
+matrix:#000000:#00ff00:#000000:#008800:#00ff00:#aaff00:#005533:#00aa55:#00ff66:#88ff99:#003311:#00bb22:#33ff44:#bbff44:#006644:#00cc66:#44ff77:#ddffdd
+EOF
+tint matrix`,
+    src: 'demo-custom-theme.mp4',
+    poster: 'demo-custom-theme-poster.png',
+    ariaLabel: 'Adding and applying a custom tint theme',
+  },
+];
+
+type InlineDescriptionPart = {
+  code: boolean;
+  text: string;
+};
+
+function inlineDescriptionParts(text: string): InlineDescriptionPart[] {
+  const parts: InlineDescriptionPart[] = [];
+  let cursor = 0;
+
+  for (const match of text.matchAll(/`([^`]+)`/g)) {
+    const start = match.index ?? 0;
+    if (start > cursor) {
+      parts.push({ code: false, text: text.slice(cursor, start) });
+    }
+    parts.push({ code: true, text: match[1] ?? '' });
+    cursor = start + match[0].length;
+  }
+
+  if (cursor < text.length) {
+    parts.push({ code: false, text: text.slice(cursor) });
+  }
+
+  return parts;
+}
 ---
 
 <Layout
@@ -65,18 +134,121 @@ const themeColors = [
 
     <InstallWidget commands={installCommands} />
 
-    {/* TODO: Add a small static poster image for MP4 load/decode failures. */}
-    <video
-      class="demo"
-      src="demo.mp4"
-      autoplay
-      loop
-      muted
-      playsinline
-      width="824"
-      height="450"
-      aria-label="tint demo: picker, CLI, cd-hook auto-tinting, custom theme"
-    ></video>
+    <div class="demo-frame" data-demo-frame>
+      <video
+        class="demo"
+        data-demo-video
+        src="demo.mp4"
+        poster="demo-poster.png"
+        loop
+        muted
+        playsinline
+        preload="metadata"
+        width="824"
+        height="450"
+        aria-label="tint demo: picker, CLI, cd-hook auto-tinting, custom theme"
+      ></video>
+      <img
+        class="demo-poster"
+        data-demo-poster
+        src="demo-poster.png"
+        width="824"
+        height="450"
+        alt=""
+        aria-hidden="true"
+        loading="eager"
+        decoding="sync"
+      />
+      <span class="demo-play-overlay" aria-hidden="true"></span>
+      <noscript>
+        <a class="demo-fallback-link" href="demo.mp4">Open demo video</a>
+      </noscript>
+    </div>
+
+    <div class="feature-demos">
+      {featureDemos.map((demo) => (
+        <section class="feature-demo" data-feature-demo aria-labelledby={`feature-${demo.id}`}>
+          <div class="feature-copy">
+            <h2 id={`feature-${demo.id}`}>{demo.title}</h2>
+            <p>
+              {inlineDescriptionParts(demo.description).map((part) =>
+                part.code ? <code>{part.text}</code> : part.text,
+              )}
+            </p>
+            <button
+              type="button"
+              class="feature-command"
+              data-feature-command
+              data-feature-copy
+              data-copy
+              data-code={demo.command}
+              aria-label={`Copy ${demo.command}`}
+            >
+              <code>{demo.command}</code>
+              <span class="feature-copy-status">
+                <svg
+                  class="icon-copy"
+                  width="16"
+                  height="16"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="1.5"
+                  stroke-linecap="square"
+                  aria-hidden="true"
+                >
+                  <path d="M8.75 8.75V2.75H21.25V15.25H15.25M15.25 8.75H2.75V21.25H15.25V8.75Z" />
+                </svg>
+                <svg
+                  class="icon-check"
+                  width="16"
+                  height="16"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2"
+                  stroke-linecap="square"
+                  aria-hidden="true"
+                >
+                  <path d="M2.75 15.0938L9 20.25L21.25 3.75" />
+                </svg>
+                <span class="feature-copy-announce sr-only" data-copy-announce aria-live="polite"></span>
+              </span>
+            </button>
+          </div>
+          <div class="demo-frame" data-demo-frame>
+            <video
+              class="demo"
+              data-demo-video
+              src={demo.src}
+              poster={demo.poster}
+              loop
+              muted
+              playsinline
+              preload="metadata"
+              width="824"
+              height="450"
+              aria-label={demo.ariaLabel}
+            ></video>
+            <img
+              class="demo-poster"
+              data-demo-poster
+              src={demo.poster}
+              width="824"
+              height="450"
+              alt=""
+              aria-hidden="true"
+              loading="eager"
+              decoding="sync"
+            />
+            <span class="demo-play-overlay" aria-hidden="true"></span>
+            <noscript>
+              <a class="demo-fallback-link" href={demo.src}>Open demo video</a>
+            </noscript>
+          </div>
+        </section>
+      ))}
+    </div>
 
     <p class="github-link">
       <a href={repoUrl} aria-label="GitHub repository">
@@ -86,4 +258,18 @@ const themeColors = [
 
     <p class="copyright">© 2026 Cory Gabrielsen</p>
   </main>
+
+<script>
+  import { wireCopyButtons } from '~/scripts/copy-buttons';
+
+  wireCopyButtons('[data-feature-copy]', {
+    errorPrefix: 'Feature command clipboard write failed',
+  });
+</script>
+
+<script>
+  import { wireDemoVideos } from '~/scripts/demo-videos';
+
+  wireDemoVideos();
+</script>
 </Layout>

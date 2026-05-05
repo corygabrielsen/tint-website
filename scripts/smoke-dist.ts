@@ -3,6 +3,16 @@ import { parse as parseJsonc, printParseErrorCode } from 'jsonc-parser';
 
 const dist = new URL('../dist/', import.meta.url);
 const errors: string[] = [];
+const runtimeRoleButtonPattern = /\.setAttribute\(\s*(['"])role\1\s*,\s*(['"])button\2\s*\)/;
+const runtimeFrameLabelPattern = /\$\{\s*\w+\s*\?\s*(['"])Pause\1\s*:\s*(['"])Play\2\s*\}:\s*\$\{/;
+const runtimeInitialPressedPattern =
+  /\.setAttribute\(\s*(['"])aria-pressed\1\s*,\s*(['"])false\2\s*\)/;
+const reducedMotionInitialPausePattern =
+  /matchMedia\(\s*(['"])\(prefers-reduced-motion: reduce\)\1\s*\)[\s\S]{0,240}?\blet\b[\s\S]{0,160}?\b\w+\s*=\s*\w+\.matches\b/;
+const reducedMotionChangePausePattern =
+  /(?:if\s*\([^)]*\.matches\)\s*\w+\s*=\s*true|\w+\.matches\s*&&\s*\(?\w+\s*=\s*!0\)?)/;
+const mediaQueryListenerFallbackPattern =
+  /addEventListener\(\s*(['"])change\1[\s\S]{0,260}catch[\s\S]{0,260}addListener\(/;
 
 function check(condition: boolean, message: string): void {
   if (!condition) {
@@ -62,9 +72,124 @@ async function checkAbsent(path: string): Promise<void> {
   }
 }
 
-function extractVideoSrc(html: string): string | undefined {
-  const match = html.match(/<video\b[^>]*\bsrc\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+))/i);
-  return match?.[1] ?? match?.[2] ?? match?.[3];
+function extractVideoSrcs(html: string): string[] {
+  return [...html.matchAll(/<video\b[^>]*\bsrc\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+))/gi)]
+    .map((match) => match[1] ?? match[2] ?? match[3])
+    .filter((src): src is string => Boolean(src));
+}
+
+function extractScriptSrcs(html: string): string[] {
+  return [...html.matchAll(/<script\b[^>]*\bsrc\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+))/gi)]
+    .map((match) => match[1] ?? match[2] ?? match[3])
+    .filter((src): src is string => Boolean(src));
+}
+
+function extractStylesheetHrefs(html: string): string[] {
+  return [
+    ...html.matchAll(
+      /<link\b[^>]*\brel\s*=\s*["']stylesheet["'][^>]*\bhref\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+))/gi,
+    ),
+  ]
+    .map((match) => match[1] ?? match[2] ?? match[3])
+    .filter((href): href is string => Boolean(href));
+}
+
+function extractModuleSpecs(script: string): string[] {
+  const specs: string[] = [];
+  const patterns = [
+    /\b(?:import|export)\s*[^;"'()]*?\bfrom\s*["']([^"']+)["']/g,
+    /\bimport\s*["']([^"']+)["']/g,
+    /\bimport\s*\(\s*["']([^"']+)["']\s*\)/g,
+  ];
+
+  for (const pattern of patterns) {
+    for (const match of script.matchAll(pattern)) {
+      if (match[1]) specs.push(match[1]);
+    }
+  }
+
+  return specs;
+}
+
+function checkSmokeParserSelfTests(): void {
+  const specs = extractModuleSpecs(`
+    import{a as b}from"./from.js";
+    import "./side-effect.js";
+    const later = import('./dynamic.js');
+    export*from"./exported.js";
+  `);
+
+  for (const expected of ['./from.js', './side-effect.js', './dynamic.js', './exported.js']) {
+    check(specs.includes(expected), `script import parser missed ${expected}`);
+  }
+
+  for (const sample of [
+    'frame.setAttribute("role","button")',
+    'frame.setAttribute( \'role\' , "button" )',
+  ]) {
+    check(runtimeRoleButtonPattern.test(sample), `role=button parser rejected ${sample}`);
+  }
+  check(
+    runtimeInitialPressedPattern.test('frame.setAttribute("aria-pressed","false")'),
+    'initial aria-pressed parser rejected minified sample',
+  );
+
+  check(
+    reducedMotionInitialPausePattern.test(
+      'const q=window.matchMedia("(prefers-reduced-motion: reduce)");let a=null,b=null,p=q.matches,f=0;',
+    ),
+    'reduced-motion initial-pause parser rejected minified sample',
+  );
+  check(
+    reducedMotionChangePausePattern.test('const h=e=>{e.matches&&(p=!0),r()};'),
+    'reduced-motion change-pause parser rejected minified sample',
+  );
+  check(
+    mediaQueryListenerFallbackPattern.test(
+      'try{q.addEventListener("change",h);return}catch{}q.addListener(h)',
+    ),
+    'media-query listener fallback parser rejected minified sample',
+  );
+}
+
+async function readPageScripts(html: string): Promise<string[]> {
+  const scripts = [...html.matchAll(/<script\b[^>]*>([\s\S]*?)<\/script>/g)].map((m) => m[1] ?? '');
+  const seen = new Set<string>();
+
+  async function readScriptPath(path: string): Promise<void> {
+    if (seen.has(path)) return;
+    seen.add(path);
+
+    const body = await readDistFile(path);
+    scripts.push(body);
+
+    for (const spec of extractModuleSpecs(body)) {
+      if (spec.startsWith('.')) {
+        const resolved = new URL(spec, `https://tint.sh/${path}`).pathname.slice(1);
+        await readScriptPath(resolved);
+      }
+    }
+  }
+
+  for (const src of extractScriptSrcs(html)) {
+    if (src.startsWith('/') && !src.startsWith('//')) {
+      await readScriptPath(src.slice(1));
+    }
+  }
+
+  return scripts;
+}
+
+async function readPageStyles(html: string): Promise<string[]> {
+  const styles = [...html.matchAll(/<style\b[^>]*>([\s\S]*?)<\/style>/g)].map((m) => m[1] ?? '');
+
+  for (const href of extractStylesheetHrefs(html)) {
+    if (href.startsWith('/') && !href.startsWith('//')) {
+      styles.push(await readDistFile(href.slice(1)));
+    }
+  }
+
+  return styles;
 }
 
 function decodeHtmlEntities(s: string): string {
@@ -80,6 +205,20 @@ function decodeHtmlEntities(s: string): string {
 function getAttr(tag: string, name: string): string | undefined {
   const match = tag.match(new RegExp(`\\b${name}\\s*=\\s*"([^"]*)"`));
   return match?.[1];
+}
+
+function escapeRegex(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function checkRootLocalAssetPath(kind: string, path: string): void {
+  check(!path.startsWith('/'), `${kind} must be relative, got ${path}`);
+  check(!/^[a-z][a-z0-9+.-]*:/i.test(path), `${kind} must not be absolute, got ${path}`);
+  check(
+    !path.split('/').some((segment) => segment === '.' || segment === '..'),
+    `${kind} must not use dot segments, got ${path}`,
+  );
+  check(!path.includes('/'), `${kind} must be a root-local asset filename, got ${path}`);
 }
 
 // Every <link rel="icon" href="…"> on the page must point at a file that
@@ -110,34 +249,279 @@ async function checkFaviconLinks(html: string, sourcePath: string): Promise<void
   }
 }
 
-// Sweep every <video> on the page. Two invariants apply:
-//
-// - Any video with `autoplay` must also carry `muted` (every modern
-//   browser's autoplay policy blocks autoplay without it) and
-//   `playsinline` (iOS Safari otherwise goes fullscreen on tap).
-//   Removing either silently breaks autoplay while still rendering a
-//   poster frame, so the page looks fine in CI but is broken for users.
-//   We gate this on `autoplay` so a non-autoplay video added later
-//   (background explainer, FAQ clip, etc.) doesn't trip the check.
-// - Every video, autoplay or not, needs a non-empty `aria-label` so
-//   screen readers have something to announce.
-//
-// At least one video must exist (the demo); we don't pin the count
-// because adding a second video shouldn't require a smoke change.
-function checkVideoElements(html: string): void {
+// Demo videos are played by the viewport-aware controller below rather
+// than by raw `autoplay` attributes. They must still be muted and
+// playsinline so programmatic play works in mobile browsers. Static
+// preload stays at metadata; the controller promotes only the focused
+// video to eager preload before playback.
+async function checkVideoElements(html: string): Promise<void> {
   const tags = [...html.matchAll(/<video\b[^>]*>/g)].map((m) => m[0]);
+  const frames = [...html.matchAll(/<div\b[^>]*\bdata-demo-frame\b[^>]*>/g)].map((m) => m[0]);
   check(tags.length > 0, 'homepage is missing a <video> element');
   for (const tag of tags) {
-    if (/\bautoplay\b/.test(tag)) {
-      for (const attr of ['muted', 'playsinline']) {
+    if (/\bdata-demo-video\b/.test(tag)) {
+      for (const attr of ['loop', 'muted', 'playsinline']) {
         check(
           new RegExp(`\\b${attr}\\b`).test(tag),
-          `<video autoplay> missing required ${attr} attribute (autoplay won't trigger without it): ${tag}`,
+          `<video data-demo-video> missing required ${attr} attribute: ${tag}`,
         );
+      }
+      check(
+        !/\bautoplay\b/.test(tag),
+        `<video data-demo-video> should be script-controlled, not autoplay: ${tag}`,
+      );
+      const preload = getAttr(tag, 'preload');
+      check(
+        preload === 'metadata',
+        `<video data-demo-video> should preload only metadata until focused: ${tag}`,
+      );
+      const poster = getAttr(tag, 'poster');
+      check(
+        Boolean(poster),
+        `<video data-demo-video> missing poster (iPhone Safari blank-box regression): ${tag}`,
+      );
+      if (poster) {
+        checkRootLocalAssetPath('video poster', poster);
+        await checkNonEmptyFile(poster);
       }
     }
     const ariaLabel = getAttr(tag, 'aria-label');
     check(Boolean(ariaLabel), `<video> missing or empty aria-label (a11y regression): ${tag}`);
+  }
+
+  const demoVideos = tags.filter((tag) => /\bdata-demo-video\b/.test(tag));
+  check(
+    demoVideos.length === 5,
+    `expected 5 script-controlled demo videos, found ${demoVideos.length}`,
+  );
+  const demoVideoLabels = demoVideos
+    .map((tag) => getAttr(tag, 'aria-label'))
+    .filter((label): label is string => Boolean(label));
+  check(
+    new Set(demoVideoLabels).size === demoVideos.length,
+    `demo video aria-labels must be unique so runtime frame controls have unique names: ${demoVideoLabels.join(' | ')}`,
+  );
+  check(frames.length === 5, `expected 5 demo video frames, found ${frames.length}`);
+  for (const [i, frame] of frames.entries()) {
+    check(
+      !/\brole\s*=\s*"button"/.test(frame),
+      `demo video frame ${i}: should not be a static role="button" without JS handlers`,
+    );
+    check(
+      !/\btabindex\s*=\s*"0"/.test(frame),
+      `demo video frame ${i}: should not be statically focusable without JS handlers`,
+    );
+  }
+}
+
+function checkDemoFallbackLinks(html: string): void {
+  const frames = [...html.matchAll(/<div\b[^>]*\bdata-demo-frame\b[^>]*>[\s\S]*?<\/div>/g)].map(
+    (m) => m[0],
+  );
+
+  for (const [i, frame] of frames.entries()) {
+    const videoTag = frame.match(/<video\b[^>]*>/)?.[0];
+    const videoSrc = videoTag ? getAttr(videoTag, 'src') : undefined;
+    const videoPoster = videoTag ? getAttr(videoTag, 'poster') : undefined;
+    const posterTag = frame.match(/<img\b[^>]*\bdata-demo-poster\b[^>]*>/)?.[0];
+    const posterSrc = posterTag ? getAttr(posterTag, 'src') : undefined;
+    const fallback = frame.match(
+      /<noscript\b[\s\S]*?<a\b[^>]*\bhref\s*=\s*"([^"]+)"[^>]*>[\s\S]*?<\/a>[\s\S]*?<\/noscript>/,
+    );
+    const fallbackHref = fallback?.[1];
+
+    check(Boolean(videoSrc), `demo video frame ${i}: missing video src`);
+    check(Boolean(fallbackHref), `demo video frame ${i}: missing no-JS fallback link`);
+    if (videoSrc && fallbackHref) {
+      check(
+        fallbackHref === videoSrc,
+        `demo video frame ${i}: fallback href ${fallbackHref} does not match video src ${videoSrc}`,
+      );
+      checkRootLocalAssetPath(`demo fallback href ${i}`, fallbackHref);
+    }
+
+    check(Boolean(videoPoster), `demo video frame ${i}: missing video poster`);
+    check(Boolean(posterTag), `demo video frame ${i}: missing poster shim image`);
+    if (videoPoster && posterSrc) {
+      check(
+        posterSrc === videoPoster,
+        `demo video frame ${i}: poster shim src ${posterSrc} does not match video poster ${videoPoster}`,
+      );
+      checkRootLocalAssetPath(`demo poster shim ${i}`, posterSrc);
+    }
+    if (posterTag) {
+      check(getAttr(posterTag, 'alt') === '', `demo poster shim ${i}: alt must be empty`);
+      check(
+        getAttr(posterTag, 'aria-hidden') === 'true',
+        `demo poster shim ${i}: must be aria-hidden`,
+      );
+      check(
+        getAttr(posterTag, 'loading') === 'eager',
+        `demo poster shim ${i}: must load eagerly before scroll/playback`,
+      );
+      check(
+        getAttr(posterTag, 'decoding') === 'sync',
+        `demo poster shim ${i}: must request synchronous decode to avoid first-paint flashes`,
+      );
+    }
+  }
+}
+
+function checkDemoPosterStyles(styles: string[]): void {
+  const hasPosterShimStyles = styles.some(
+    (s) =>
+      s.includes('.demo-poster') &&
+      s.includes('position:absolute') &&
+      s.includes('object-fit:cover') &&
+      s.includes('data-demo-video-ready') &&
+      s.includes('opacity:0'),
+  );
+  check(hasPosterShimStyles, 'no bundled CSS layers the demo poster shim above the video');
+}
+
+function checkDemoOverlayStyles(styles: string[]): void {
+  const hasGlobalPausedOverlay = styles.some((s) =>
+    /\.demo-frame\[data-demo-paused\]\s*\.demo-play-overlay\{[^}]*opacity:1/.test(s),
+  );
+  const hasActiveOnlyPausedOverlay = styles.some((s) =>
+    /\.demo-frame\[data-demo-active\]\[data-demo-paused\]\s*\.demo-play-overlay/.test(s),
+  );
+
+  check(
+    hasGlobalPausedOverlay,
+    'no bundled CSS shows every demo play overlay while playback is paused',
+  );
+  check(
+    !hasActiveOnlyPausedOverlay,
+    'demo play overlay must not be gated to only the active paused video',
+  );
+}
+
+function checkDemoVideoController(scripts: string[]): void {
+  const wired = scripts.some(
+    (s) =>
+      s.includes('data-demo-frame') &&
+      s.includes('data-demo-video') &&
+      s.includes('data-demo-video-ready') &&
+      s.includes('IntersectionObserver') &&
+      s.includes('.preload=') &&
+      s.includes('"auto"') &&
+      s.includes('"metadata"') &&
+      s.includes('.load()') &&
+      s.includes('prefers-reduced-motion: reduce') &&
+      s.includes('matchMedia') &&
+      reducedMotionInitialPausePattern.test(s) &&
+      reducedMotionChangePausePattern.test(s) &&
+      mediaQueryListenerFallbackPattern.test(s) &&
+      s.includes('data-demo-paused') &&
+      s.includes('aria-pressed') &&
+      s.includes('getAttribute("aria-label")') &&
+      runtimeFrameLabelPattern.test(s) &&
+      runtimeRoleButtonPattern.test(s) &&
+      runtimeInitialPressedPattern.test(s) &&
+      /addEventListener\(["']click["']/.test(s) &&
+      /addEventListener\(["']keydown["']/.test(s) &&
+      /addEventListener\(["']playing["']/.test(s) &&
+      /addEventListener\(["']timeupdate["']/.test(s) &&
+      /addEventListener\(["']scroll["']/.test(s) &&
+      s.includes('cancelAnimationFrame') &&
+      s.includes('requestAnimationFrame') &&
+      s.includes('currentTime') &&
+      s.includes('.pause()') &&
+      s.includes('.play()'),
+  );
+  check(wired, 'no bundled script wires clickable viewport-aware demo video playback');
+}
+
+function checkCopyButtons(html: string, scripts: string[]): void {
+  const buttons = [
+    ...html.matchAll(
+      /<button\b(?:"[^"]*"|'[^']*'|[^'">])*\bdata-copy\b(?:"[^"]*"|'[^']*'|[^'">])*>[\s\S]*?<\/button>/g,
+    ),
+  ].map((m) => m[0]);
+  check(buttons.length === 6, `expected 6 copy buttons, found ${buttons.length}`);
+
+  for (const [i, button] of buttons.entries()) {
+    const tag = button.match(/<button\b(?:"[^"]*"|'[^']*'|[^'">])*>/)?.[0] ?? '';
+    const dataCode = getAttr(tag, 'data-code');
+    const ariaLabel = getAttr(tag, 'aria-label');
+    check(Boolean(dataCode), `copy button ${i}: missing data-code`);
+    check(Boolean(ariaLabel), `copy button ${i}: missing aria-label`);
+    if (dataCode && ariaLabel) {
+      const decodedCode = decodeHtmlEntities(dataCode);
+      const decodedLabel = decodeHtmlEntities(ariaLabel);
+      check(
+        decodedLabel === `Copy ${decodedCode}`,
+        `copy button ${i}: aria-label "${decodedLabel}" does not match "Copy ${decodedCode}"`,
+      );
+    }
+    check(
+      /\bdata-copy-announce\b/.test(button) && /\baria-live\s*=\s*"polite"/.test(button),
+      `copy button ${i}: missing polite data-copy-announce live region`,
+    );
+  }
+
+  const hasSharedController = scripts.some(
+    (s) => s.includes('clipboard.writeText') && s.includes('data-copy-announce'),
+  );
+  const hasInstallWiring = scripts.some((s) => s.includes('.install-widget [data-copy]'));
+  const hasFeatureWiring = scripts.some((s) => s.includes('[data-feature-copy]'));
+  check(hasSharedController, 'no bundled script contains the shared copy-button controller');
+  check(hasInstallWiring, 'no bundled script wires install-widget copy buttons');
+  check(hasFeatureWiring, 'no bundled script wires feature-command copy buttons');
+}
+
+function checkFeatureDemos(html: string): void {
+  const expectedCommands = [
+    'tint dracula',
+    'tint',
+    'eval "$(tint hook bash)"\necho dracula > .tint',
+    [
+      'mkdir -p ~/.config/tint/themes',
+      "cat > ~/.config/tint/themes/matrix.theme <<'EOF'",
+      'matrix:#000000:#00ff00:#000000:#008800:#00ff00:#aaff00:#005533:#00aa55:#00ff66:#88ff99:#003311:#00bb22:#33ff44:#bbff44:#006644:#00cc66:#44ff77:#ddffdd',
+      'EOF',
+      'tint matrix',
+    ].join('\n'),
+  ];
+  const expectedInlineCode = [[], ['tint'], ['.tint'], ['.theme']];
+  const sections = [
+    ...html.matchAll(/<section\b[^>]*\bdata-feature-demo\b[^>]*>[\s\S]*?<\/section>/g),
+  ].map((m) => m[0]);
+  check(
+    sections.length === expectedCommands.length,
+    `expected ${expectedCommands.length} feature demos, found ${sections.length}`,
+  );
+
+  for (const [i, section] of sections.entries()) {
+    check(/<h2\b/.test(section), `feature demo ${i}: missing title`);
+    check(/<p\b/.test(section), `feature demo ${i}: missing sentence`);
+    const sentence = section.match(/<p\b[^>]*>[\s\S]*?<\/p>/)?.[0] ?? '';
+    check(!sentence.includes('`'), `feature demo ${i}: sentence rendered literal backticks`);
+    for (const codeText of expectedInlineCode[i] ?? []) {
+      check(
+        new RegExp(`<code>${escapeRegex(codeText)}</code>`).test(sentence),
+        `feature demo ${i}: sentence missing inline code for ${codeText}`,
+      );
+    }
+    check(/<video\b/.test(section), `feature demo ${i}: missing video`);
+    check(/\bdata-feature-command\b/.test(section), `feature demo ${i}: missing command block`);
+    const copyButton = section.match(
+      /<button\b(?:"[^"]*"|'[^']*'|[^'">])*\bdata-feature-copy\b(?:"[^"]*"|'[^']*'|[^'">])*>/,
+    )?.[0];
+    check(Boolean(copyButton), `feature demo ${i}: missing copy button`);
+    if (copyButton) {
+      const dataCode = getAttr(copyButton, 'data-code');
+      check(Boolean(dataCode), `feature demo ${i}: copy button missing data-code`);
+      if (dataCode) {
+        const decodedCode = decodeHtmlEntities(dataCode);
+        check(
+          decodedCode === expectedCommands[i],
+          `feature demo ${i}: command mismatch "${decodedCode}"`,
+        );
+        check(/\bdata-copy\b/.test(copyButton), `feature demo ${i}: copy button missing data-copy`);
+      }
+    }
   }
 }
 
@@ -199,7 +583,7 @@ function extractInstallWidget(html: string): string | undefined {
 // the rendered buttons. Without this last check, a selector or bundling
 // regression would ship silently because nothing exercises the handler
 // at runtime in CI.
-function checkInstallWidget(html: string): void {
+function checkInstallWidget(html: string, scripts: string[]): void {
   const widget = extractInstallWidget(html);
   check(Boolean(widget), 'install-widget fieldset not found in rendered HTML');
   if (!widget) return;
@@ -239,15 +623,9 @@ function checkInstallWidget(html: string): void {
   );
 
   // Match the literal compound selector `.install-widget [data-copy]`,
-  // not the two substrings independently. The previous looser check
-  // (`.install-widget` + `data-copy` anywhere in the same script body)
-  // false-passed when the substrings appeared in unrelated contexts —
-  // e.g. a class rename to `.install` plus an unrelated `data-copy`
-  // attribute elsewhere in the bundle would still satisfy it. The
-  // bundler may collapse spaces around CSS combinators or rewrite the
-  // selector via a single pass, so we accept any whitespace run between
-  // the class and the attribute selector.
-  const scripts = [...html.matchAll(/<script\b[^>]*>([\s\S]*?)<\/script>/g)].map((m) => m[1] ?? '');
+  // not the two substrings independently. This protects the install
+  // widget's selector while `checkCopyButtons` verifies the shared
+  // controller used by every copy button on the page.
   const wired = scripts.some((s) => /\.install-widget\s+\[data-copy\]/.test(s));
   check(
     wired,
@@ -373,26 +751,28 @@ async function checkWranglerConfig(): Promise<void> {
 
 const html = await readDistFile('index.html');
 const notFoundHtml = await readDistFile('404.html');
-const videoSrc = extractVideoSrc(html);
+const pageScripts = await readPageScripts(html);
+const pageStyles = await readPageStyles(html);
+const videoSrcs = extractVideoSrcs(html);
 
-check(Boolean(videoSrc), 'homepage is missing a video src');
+checkSmokeParserSelfTests();
 
-if (videoSrc) {
-  check(!videoSrc.startsWith('/'), `video src must be relative, got ${videoSrc}`);
-  check(!/^[a-z][a-z0-9+.-]*:/i.test(videoSrc), `video src must not be absolute, got ${videoSrc}`);
+check(videoSrcs.length > 0, 'homepage is missing a video src');
+check(videoSrcs.includes('demo.mp4'), 'homepage is missing the primary demo.mp4 video');
 
-  // Pin the canonical filename. Combined with the relative-src checks
-  // above, this guarantees the homepage video is served from /demo.mp4
-  // on tint.sh — the path the asset binding actually serves.
-  const customDomainUrl = new URL(videoSrc, 'https://tint.sh/');
-  check(
-    customDomainUrl.pathname === '/demo.mp4',
-    `video src resolves incorrectly on tint.sh: ${customDomainUrl.href}`,
-  );
+for (const videoSrc of videoSrcs) {
+  checkRootLocalAssetPath('video src', videoSrc);
+  await checkNonEmptyFile(videoSrc);
 }
 
-checkInstallWidget(html);
-checkVideoElements(html);
+checkInstallWidget(html, pageScripts);
+checkCopyButtons(html, pageScripts);
+await checkVideoElements(html);
+checkDemoFallbackLinks(html);
+checkDemoPosterStyles(pageStyles);
+checkDemoOverlayStyles(pageStyles);
+checkDemoVideoController(pageScripts);
+checkFeatureDemos(html);
 checkIconOnlyLinks(html);
 checkLabelControlWiring(html);
 checkPlausibleSnippet(html, 'index.html');
@@ -400,8 +780,15 @@ checkPlausibleSnippet(notFoundHtml, '404.html');
 await checkFaviconLinks(html, 'index.html');
 await checkFaviconLinks(notFoundHtml, '404.html');
 
-await checkNonEmptyFile('demo.mp4');
-await checkNonEmptyFile('demo.gif');
+for (const file of [
+  'demo.gif',
+  'demo-cli.gif',
+  'demo-picker.gif',
+  'demo-cd-hook.gif',
+  'demo-custom-theme.gif',
+]) {
+  await checkNonEmptyFile(file);
+}
 await checkNonEmptyFile('robots.txt');
 await checkNonEmptyFile('sitemap-index.xml');
 
