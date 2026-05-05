@@ -3,6 +3,7 @@ import { parse as parseJsonc, printParseErrorCode } from 'jsonc-parser';
 
 const dist = new URL('../dist/', import.meta.url);
 const errors: string[] = [];
+const runtimeRoleButtonPattern = /\.setAttribute\(\s*(['"])role\1\s*,\s*(['"])button\2\s*\)/;
 
 function check(condition: boolean, message: string): void {
   if (!condition) {
@@ -74,6 +75,43 @@ function extractScriptSrcs(html: string): string[] {
     .filter((src): src is string => Boolean(src));
 }
 
+function extractModuleSpecs(script: string): string[] {
+  const specs: string[] = [];
+  const patterns = [
+    /\b(?:import|export)\s*[^;"'()]*?\bfrom\s*["']([^"']+)["']/g,
+    /\bimport\s*["']([^"']+)["']/g,
+    /\bimport\s*\(\s*["']([^"']+)["']\s*\)/g,
+  ];
+
+  for (const pattern of patterns) {
+    for (const match of script.matchAll(pattern)) {
+      if (match[1]) specs.push(match[1]);
+    }
+  }
+
+  return specs;
+}
+
+function checkSmokeParserSelfTests(): void {
+  const specs = extractModuleSpecs(`
+    import{a as b}from"./from.js";
+    import "./side-effect.js";
+    const later = import('./dynamic.js');
+    export*from"./exported.js";
+  `);
+
+  for (const expected of ['./from.js', './side-effect.js', './dynamic.js', './exported.js']) {
+    check(specs.includes(expected), `script import parser missed ${expected}`);
+  }
+
+  for (const sample of [
+    'frame.setAttribute("role","button")',
+    'frame.setAttribute( \'role\' , "button" )',
+  ]) {
+    check(runtimeRoleButtonPattern.test(sample), `role=button parser rejected ${sample}`);
+  }
+}
+
 async function readPageScripts(html: string): Promise<string[]> {
   const scripts = [...html.matchAll(/<script\b[^>]*>([\s\S]*?)<\/script>/g)].map((m) => m[1] ?? '');
   const seen = new Set<string>();
@@ -85,9 +123,8 @@ async function readPageScripts(html: string): Promise<string[]> {
     const body = await readDistFile(path);
     scripts.push(body);
 
-    for (const match of body.matchAll(/\bfrom\s*["']([^"']+)["']/g)) {
-      const spec = match[1];
-      if (spec?.startsWith('.')) {
+    for (const spec of extractModuleSpecs(body)) {
+      if (spec.startsWith('.')) {
         const resolved = new URL(spec, `https://tint.sh/${path}`).pathname.slice(1);
         await readScriptPath(resolved);
       }
@@ -237,7 +274,7 @@ function checkDemoVideoController(scripts: string[]): void {
       s.includes('matchMedia') &&
       s.includes('data-demo-paused') &&
       s.includes('aria-pressed') &&
-      s.includes('setAttribute("role","button")') &&
+      runtimeRoleButtonPattern.test(s) &&
       /addEventListener\(["']click["']/.test(s) &&
       /addEventListener\(["']keydown["']/.test(s) &&
       /addEventListener\(["']scroll["']/.test(s) &&
@@ -569,6 +606,8 @@ const html = await readDistFile('index.html');
 const notFoundHtml = await readDistFile('404.html');
 const pageScripts = await readPageScripts(html);
 const videoSrcs = extractVideoSrcs(html);
+
+checkSmokeParserSelfTests();
 
 check(videoSrcs.length > 0, 'homepage is missing a video src');
 check(videoSrcs.includes('demo.mp4'), 'homepage is missing the primary demo.mp4 video');
