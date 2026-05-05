@@ -27,7 +27,7 @@ const { code, variant = 'panel' } = Astro.props;
 
 <button
   type="button"
-  class:list={['copy-command', `copy-command-${variant}`]}
+  class:list={['copy-command', variant === 'card' && 'code-card']}
   data-copy
   data-code={code}
   aria-label={`Copy ${code}`}
@@ -94,12 +94,6 @@ const { code, variant = 'panel' } = Astro.props;
   .copy-command:focus-visible {
     outline: 2px solid var(--fg);
     outline-offset: -2px;
-  }
-
-  /* Card variant: standalone surface with its own frame. */
-  .copy-command-card {
-    border: 1px solid var(--border);
-    background: var(--code-bg);
   }
 
   .copy-status {

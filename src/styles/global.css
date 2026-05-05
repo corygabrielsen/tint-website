@@ -279,6 +279,17 @@ a:hover {
   color: var(--muted);
 }
 
+/* Shared chrome for "code-like surfaces" — standalone copy buttons and
+   tabbed copy widgets both adopt this so the page reads as a consistent
+   set of panels rather than a grab bag of bordered things. Any new
+   tabbed widget or copy surface should opt in by adding this class
+   alongside its layout class; the chrome stops drifting because there's
+   only one place to define it. */
+.code-card {
+  border: 1px solid var(--border);
+  background: var(--code-bg);
+}
+
 /* Shiki's pre→span tokenization output, used wherever HighlightedCommand
    renders. Single source of truth — InstallWidget panels, per-feature
    CopyCommand cards, and any future copy surface all read from this
