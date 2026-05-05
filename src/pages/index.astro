@@ -392,7 +392,7 @@ function inlineDescriptionParts(text: string): InlineDescriptionPart[] {
       const isActive = video === next;
       const isPlaying = isActive && !isDemoPlaybackPaused;
       frame.toggleAttribute('data-demo-active', isActive);
-      frame.toggleAttribute('data-demo-paused', isActive && isDemoPlaybackPaused);
+      frame.toggleAttribute('data-demo-paused', isDemoPlaybackPaused);
       frame.setAttribute('aria-label', demoFrameLabel(video, isPlaying));
       frame.setAttribute('aria-pressed', String(isPlaying));
     }

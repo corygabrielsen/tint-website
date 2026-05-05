@@ -250,7 +250,7 @@ a:hover {
   border-left: clamp(3.4rem, 8.2vw, 5.75rem) solid color-mix(in srgb, var(--fg) 90%, transparent);
 }
 
-.demo-frame[data-demo-active][data-demo-paused] .demo-play-overlay {
+.demo-frame[data-demo-paused] .demo-play-overlay {
   opacity: 1;
 }
 

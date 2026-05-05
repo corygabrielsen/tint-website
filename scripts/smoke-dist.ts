@@ -371,6 +371,24 @@ function checkDemoPosterStyles(styles: string[]): void {
   check(hasPosterShimStyles, 'no bundled CSS layers the demo poster shim above the video');
 }
 
+function checkDemoOverlayStyles(styles: string[]): void {
+  const hasGlobalPausedOverlay = styles.some((s) =>
+    /\.demo-frame\[data-demo-paused\]\s*\.demo-play-overlay\{[^}]*opacity:1/.test(s),
+  );
+  const hasActiveOnlyPausedOverlay = styles.some((s) =>
+    /\.demo-frame\[data-demo-active\]\[data-demo-paused\]\s*\.demo-play-overlay/.test(s),
+  );
+
+  check(
+    hasGlobalPausedOverlay,
+    'no bundled CSS shows every demo play overlay while playback is paused',
+  );
+  check(
+    !hasActiveOnlyPausedOverlay,
+    'demo play overlay must not be gated to only the active paused video',
+  );
+}
+
 function checkDemoVideoController(scripts: string[]): void {
   const wired = scripts.some(
     (s) =>
@@ -743,6 +761,7 @@ checkCopyButtons(html, pageScripts);
 await checkVideoElements(html);
 checkDemoFallbackLinks(html);
 checkDemoPosterStyles(pageStyles);
+checkDemoOverlayStyles(pageStyles);
 checkDemoVideoController(pageScripts);
 checkFeatureDemos(html);
 checkIconOnlyLinks(html);
