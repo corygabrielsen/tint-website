@@ -50,10 +50,11 @@ const themeColors = [
 const featureDemos = [
   {
     id: 'apply-by-name',
-    title: 'Set a theme by name',
+    title: 'Apply a theme by name',
     description: 'Use any theme directly from your shell. Instantly.',
     command: 'tint dracula',
     src: 'demo-cli.mp4',
+    poster: 'demo-cli-poster.png',
     ariaLabel: 'Applying built-in tint themes by name',
   },
   {
@@ -62,6 +63,7 @@ const featureDemos = [
     description: 'Run `tint` with no arguments to scroll and select themes interactively in your terminal.',
     command: 'tint',
     src: 'demo-picker.mp4',
+    poster: 'demo-picker-poster.png',
     ariaLabel: 'Selecting a tint theme in the interactive picker',
   },
   {
@@ -71,6 +73,7 @@ const featureDemos = [
     command: `eval "$(tint hook bash)"
 echo dracula > .tint`,
     src: 'demo-cd-hook.mp4',
+    poster: 'demo-cd-hook-poster.png',
     ariaLabel: 'Automatically applying tint themes when changing directories',
   },
   {
@@ -83,6 +86,7 @@ matrix:#000000:#00ff00:#000000:#008800:#00ff00:#aaff00:#005533:#00aa55:#00ff66:#
 EOF
 tint matrix`,
     src: 'demo-custom-theme.mp4',
+    poster: 'demo-custom-theme-poster.png',
     ariaLabel: 'Adding and applying a custom tint theme',
   },
 ];
@@ -130,16 +134,16 @@ function inlineDescriptionParts(text: string): InlineDescriptionPart[] {
 
     <InstallWidget commands={installCommands} />
 
-    {/* TODO: Add a small static poster image for MP4 load/decode failures. */}
     <div class="demo-frame" data-demo-frame>
       <video
         class="demo"
         data-demo-video
         src="demo.mp4"
+        poster="demo-poster.png"
         loop
         muted
         playsinline
-        preload="metadata"
+        preload="auto"
         width="824"
         height="450"
         aria-label="tint demo: picker, CLI, cd-hook auto-tinting, custom theme"
@@ -206,10 +210,11 @@ function inlineDescriptionParts(text: string): InlineDescriptionPart[] {
               class="demo"
               data-demo-video
               src={demo.src}
+              poster={demo.poster}
               loop
               muted
               playsinline
-              preload="metadata"
+              preload="auto"
               width="824"
               height="450"
               aria-label={demo.ariaLabel}

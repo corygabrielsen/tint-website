@@ -200,7 +200,7 @@ async function checkFaviconLinks(html: string, sourcePath: string): Promise<void
 // Demo videos are played by the viewport-aware controller below rather
 // than by raw `autoplay` attributes. They must still be muted and
 // playsinline so programmatic play works in mobile browsers.
-function checkVideoElements(html: string): void {
+async function checkVideoElements(html: string): Promise<void> {
   const tags = [...html.matchAll(/<video\b[^>]*>/g)].map((m) => m[0]);
   const frames = [...html.matchAll(/<div\b[^>]*\bdata-demo-frame\b[^>]*>/g)].map((m) => m[0]);
   check(tags.length > 0, 'homepage is missing a <video> element');
@@ -216,6 +216,20 @@ function checkVideoElements(html: string): void {
         !/\bautoplay\b/.test(tag),
         `<video data-demo-video> should be script-controlled, not autoplay: ${tag}`,
       );
+      const preload = getAttr(tag, 'preload');
+      check(
+        preload === 'auto',
+        `<video data-demo-video> should preload eagerly for iPhone Safari poster/frame readiness: ${tag}`,
+      );
+      const poster = getAttr(tag, 'poster');
+      check(
+        Boolean(poster),
+        `<video data-demo-video> missing poster (iPhone Safari blank-box regression): ${tag}`,
+      );
+      if (poster) {
+        checkRootLocalAssetPath('video poster', poster);
+        await checkNonEmptyFile(poster);
+      }
     }
     const ariaLabel = getAttr(tag, 'aria-label');
     check(Boolean(ariaLabel), `<video> missing or empty aria-label (a11y regression): ${tag}`);
@@ -619,7 +633,7 @@ for (const videoSrc of videoSrcs) {
 
 checkInstallWidget(html, pageScripts);
 checkCopyButtons(html, pageScripts);
-checkVideoElements(html);
+await checkVideoElements(html);
 checkDemoFallbackLinks(html);
 checkDemoVideoController(pageScripts);
 checkFeatureDemos(html);
