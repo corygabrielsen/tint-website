@@ -14,6 +14,13 @@ export function wireCopyButtons(selector: string, options: CopyButtonOptions = {
     const announce = btn.querySelector<HTMLSpanElement>('[data-copy-announce]');
 
     btn.addEventListener('click', async () => {
+      const prev = copyTimers.get(btn);
+      if (prev !== undefined) window.clearTimeout(prev);
+      copyTimers.delete(btn);
+
+      btn.removeAttribute('data-copied');
+      if (announce) announce.textContent = '';
+
       const text = btn.dataset.code ?? '';
       let success = false;
       try {
@@ -30,8 +37,6 @@ export function wireCopyButtons(selector: string, options: CopyButtonOptions = {
         announce.textContent = 'Copy failed';
       }
 
-      const prev = copyTimers.get(btn);
-      if (prev !== undefined) window.clearTimeout(prev);
       copyTimers.set(
         btn,
         window.setTimeout(() => {
