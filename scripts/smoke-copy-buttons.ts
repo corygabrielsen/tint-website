@@ -103,9 +103,10 @@ Object.defineProperty(globalThis, 'window', {
 
 type PendingCopy = ReturnType<typeof pendingCopy>;
 
-let copy: PendingCopy | undefined;
+let copies: PendingCopy[] = [];
 
-function currentCopy(context: string): PendingCopy {
+function nextCopy(context: string): PendingCopy {
+  const copy = copies.shift();
   if (!copy) throw new Error(`${context}: clipboard write was not attempted`);
   return copy;
 }
@@ -115,7 +116,8 @@ Object.defineProperty(globalThis, 'navigator', {
   value: {
     clipboard: {
       writeText: () => {
-        copy = pendingCopy();
+        const copy = pendingCopy();
+        copies.push(copy);
         return copy.promise;
       },
     },
@@ -125,21 +127,21 @@ Object.defineProperty(globalThis, 'navigator', {
 wireCopyButtons('[data-copy]');
 console.error = () => {};
 
-copy = undefined;
+copies = [];
 const successClick = button.click();
-currentCopy('success').resolve();
+nextCopy('success').resolve();
 await successClick;
 check(button.hasAttribute('data-copied'), 'success: missing copied state');
 check(button.announce.textContent === 'Copied', 'success: copied announcement missing');
 
-copy = undefined;
+copies = [];
 const failureAfterSuccessClick = button.click();
 check(!button.hasAttribute('data-copied'), 'failure after success: copied state was stale');
 check(
   button.announce.textContent === '',
   'failure after success: announcement was not cleared before retry',
 );
-currentCopy('failure after success').reject(new Error('denied'));
+nextCopy('failure after success').reject(new Error('denied'));
 await failureAfterSuccessClick;
 check(!button.hasAttribute('data-copied'), 'failure after success: copied state returned');
 check(
@@ -147,17 +149,54 @@ check(
   'failure after success: failure announcement missing',
 );
 
-copy = undefined;
+copies = [];
 const consecutiveFailureClick = button.click();
 check(
   button.announce.textContent === '',
   'consecutive failure: previous failure announcement was not cleared before retry',
 );
-currentCopy('consecutive failure').reject(new Error('still denied'));
+nextCopy('consecutive failure').reject(new Error('still denied'));
 await consecutiveFailureClick;
 check(
   button.announce.textContent === 'Copy failed',
   'consecutive failure: failure announcement missing',
+);
+
+copies = [];
+const staleFailureClick = button.click();
+const staleFailure = nextCopy('stale failure');
+const freshSuccessClick = button.click();
+const freshSuccess = nextCopy('fresh success');
+freshSuccess.resolve();
+await freshSuccessClick;
+check(button.hasAttribute('data-copied'), 'fresh success: copied state missing');
+check(button.announce.textContent === 'Copied', 'fresh success: copied announcement missing');
+staleFailure.reject(new Error('late denied'));
+await staleFailureClick;
+check(
+  button.hasAttribute('data-copied'),
+  'stale failure: older failure cleared newer success state',
+);
+check(
+  button.announce.textContent === 'Copied',
+  'stale failure: older failure overwrote newer success announcement',
+);
+
+copies = [];
+const staleSuccessClick = button.click();
+const staleSuccess = nextCopy('stale success');
+const freshFailureClick = button.click();
+const freshFailure = nextCopy('fresh failure');
+freshFailure.reject(new Error('newer denied'));
+await freshFailureClick;
+check(!button.hasAttribute('data-copied'), 'fresh failure: copied state returned');
+check(button.announce.textContent === 'Copy failed', 'fresh failure: failure announcement missing');
+staleSuccess.resolve();
+await staleSuccessClick;
+check(!button.hasAttribute('data-copied'), 'stale success: older success set copied state');
+check(
+  button.announce.textContent === 'Copy failed',
+  'stale success: older success overwrote newer failure announcement',
 );
 
 timers.flush();
