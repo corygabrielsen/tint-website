@@ -243,7 +243,9 @@ async function checkFaviconLinks(html: string, sourcePath: string): Promise<void
 
 // Demo videos are played by the viewport-aware controller below rather
 // than by raw `autoplay` attributes. They must still be muted and
-// playsinline so programmatic play works in mobile browsers.
+// playsinline so programmatic play works in mobile browsers. Static
+// preload stays at metadata; the controller promotes only the focused
+// video to eager preload before playback.
 async function checkVideoElements(html: string): Promise<void> {
   const tags = [...html.matchAll(/<video\b[^>]*>/g)].map((m) => m[0]);
   const frames = [...html.matchAll(/<div\b[^>]*\bdata-demo-frame\b[^>]*>/g)].map((m) => m[0]);
@@ -262,8 +264,8 @@ async function checkVideoElements(html: string): Promise<void> {
       );
       const preload = getAttr(tag, 'preload');
       check(
-        preload === 'auto',
-        `<video data-demo-video> should preload eagerly for iPhone Safari poster/frame readiness: ${tag}`,
+        preload === 'metadata',
+        `<video data-demo-video> should preload only metadata until focused: ${tag}`,
       );
       const poster = getAttr(tag, 'poster');
       check(
@@ -376,6 +378,10 @@ function checkDemoVideoController(scripts: string[]): void {
       s.includes('data-demo-video') &&
       s.includes('data-demo-video-ready') &&
       s.includes('IntersectionObserver') &&
+      s.includes('.preload=') &&
+      s.includes('"auto"') &&
+      s.includes('"metadata"') &&
+      s.includes('.load()') &&
       s.includes('prefers-reduced-motion: reduce') &&
       s.includes('matchMedia') &&
       reducedMotionInitialPausePattern.test(s) &&

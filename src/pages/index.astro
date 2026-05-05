@@ -143,7 +143,7 @@ function inlineDescriptionParts(text: string): InlineDescriptionPart[] {
         loop
         muted
         playsinline
-        preload="auto"
+        preload="metadata"
         width="824"
         height="450"
         aria-label="tint demo: picker, CLI, cd-hook auto-tinting, custom theme"
@@ -225,7 +225,7 @@ function inlineDescriptionParts(text: string): InlineDescriptionPart[] {
               loop
               muted
               playsinline
-              preload="auto"
+              preload="metadata"
               width="824"
               height="450"
               aria-label={demo.ariaLabel}
@@ -300,6 +300,17 @@ function inlineDescriptionParts(text: string): InlineDescriptionPart[] {
   function clearDemoVideoReady(video: HTMLVideoElement): void {
     cancelDemoPosterRelease(video);
     demoVideoFrames.get(video)?.removeAttribute('data-demo-video-ready');
+  }
+
+  function promoteDemoVideoPreload(video: HTMLVideoElement): void {
+    if (video.preload !== 'auto') {
+      video.preload = 'auto';
+      video.load();
+    }
+  }
+
+  function demoteDemoVideoPreload(video: HTMLVideoElement): void {
+    if (video.preload !== 'metadata') video.preload = 'metadata';
   }
 
   function releaseDemoPosterAfterVideoPaint(video: HTMLVideoElement): void {
@@ -400,6 +411,7 @@ function inlineDescriptionParts(text: string): InlineDescriptionPart[] {
     const next = manualDemoVideo ?? focusedDemoVideo();
     for (const video of demoVideos) {
       if (video !== next) {
+        demoteDemoVideoPreload(video);
         if (isDemoPlaybackPaused) {
           video.pause();
         } else {
@@ -413,6 +425,8 @@ function inlineDescriptionParts(text: string): InlineDescriptionPart[] {
       updateDemoFrameStates(null);
       return;
     }
+
+    promoteDemoVideoPreload(next);
 
     if (!isDemoPlaybackPaused && activeDemoVideo !== next && next.currentTime > 0.05) {
       try {
