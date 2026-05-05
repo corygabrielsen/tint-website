@@ -439,10 +439,10 @@ function checkCopyButtons(html: string, scripts: string[]): void {
       /<button\b(?:"[^"]*"|'[^']*'|[^'">])*\bdata-copy\b(?:"[^"]*"|'[^']*'|[^'">])*>[\s\S]*?<\/button>/g,
     ),
   ].map((m) => m[0]);
-  // Expected: 2 install top-level (brew + curl) + 4 install/git sub-tabs
-  // (https/ssh/gh/gt) + 1 apply-by-name + 2 cd-hook (bash + zsh tabs) +
-  // 1 picker + 1 custom-theme.
-  check(buttons.length === 11, `expected 11 copy buttons, found ${buttons.length}`);
+  // Expected: 2 install top-level (brew + curl) + 5 install/git sub-tabs
+  // (https/ssh/gh/gt/jj) + 1 apply-by-name + 2 cd-hook (bash + zsh tabs)
+  // + 1 picker + 1 custom-theme.
+  check(buttons.length === 12, `expected 12 copy buttons, found ${buttons.length}`);
 
   for (const [i, button] of buttons.entries()) {
     const tag = button.match(/<button\b(?:"[^"]*"|'[^']*'|[^'">])*>/)?.[0] ?? '';
@@ -621,15 +621,15 @@ function checkInstallTabs(html: string): void {
   // attribute is a generic copy-to-clipboard hook, so a future copy
   // button elsewhere on the page must not break this feature's check.
   const buttons = [...widget.matchAll(/<button\b[^>]*\bdata-copy\b[^>]*>/g)].map((m) => m[0]);
-  // 2 top-level (brew + curl) + 4 git sub-tabs (https/ssh/gh/gt) — the
-  // git outer tab itself has no CopyCommand, only nested ones inside
-  // the git panel. The non-greedy fieldset extraction ends at the
-  // nested fieldset's closing tag, which still includes all 6 buttons
-  // because the nested fieldset is the last element in the outer's
-  // panels container.
+  // 2 top-level (brew + curl) + 5 git sub-tabs (https/ssh/gh/gt/jj) —
+  // the git outer tab itself has no CopyCommand, only nested ones
+  // inside the git panel. The non-greedy fieldset extraction ends at
+  // the nested fieldset's closing tag, which still includes all 7
+  // buttons because the nested fieldset is the last element in the
+  // outer's panels container.
   check(
-    buttons.length === 6,
-    `expected 6 install command-tabs buttons (brew + curl + 4 git), found ${buttons.length}`,
+    buttons.length === 7,
+    `expected 7 install command-tabs buttons (brew + curl + 5 git), found ${buttons.length}`,
   );
 
   for (const [i, tag] of buttons.entries()) {
