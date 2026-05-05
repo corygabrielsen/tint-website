@@ -148,6 +148,17 @@ function inlineDescriptionParts(text: string): InlineDescriptionPart[] {
         height="450"
         aria-label="tint demo: picker, CLI, cd-hook auto-tinting, custom theme"
       ></video>
+      <img
+        class="demo-poster"
+        data-demo-poster
+        src="demo-poster.png"
+        width="824"
+        height="450"
+        alt=""
+        aria-hidden="true"
+        loading="eager"
+        decoding="sync"
+      />
       <span class="demo-play-overlay" aria-hidden="true"></span>
       <noscript>
         <a class="demo-fallback-link" href="demo.mp4">Open demo video</a>
@@ -219,6 +230,17 @@ function inlineDescriptionParts(text: string): InlineDescriptionPart[] {
               height="450"
               aria-label={demo.ariaLabel}
             ></video>
+            <img
+              class="demo-poster"
+              data-demo-poster
+              src={demo.poster}
+              width="824"
+              height="450"
+              alt=""
+              aria-hidden="true"
+              loading="eager"
+              decoding="sync"
+            />
             <span class="demo-play-overlay" aria-hidden="true"></span>
             <noscript>
               <a class="demo-fallback-link" href={demo.src}>Open demo video</a>
@@ -247,11 +269,13 @@ function inlineDescriptionParts(text: string): InlineDescriptionPart[] {
 
 <script>
   const DEMO_VIDEO_MIN_VISIBLE_RATIO = 0.12;
+  const DEMO_VIDEO_READY_STATE = 2;
   const demoFrames = [...document.querySelectorAll<HTMLElement>('[data-demo-frame]')];
   const demoVideos = demoFrames
     .map((frame) => frame.querySelector<HTMLVideoElement>('[data-demo-video]'))
     .filter((video): video is HTMLVideoElement => Boolean(video));
   const demoVideoFrames = new Map<HTMLVideoElement, HTMLElement>();
+  const demoPosterReleaseFrames = new WeakMap<HTMLVideoElement, number>();
   const reducedMotionQuery = window.matchMedia('(prefers-reduced-motion: reduce)');
   let activeDemoVideo: HTMLVideoElement | null = null;
   let manualDemoVideo: HTMLVideoElement | null = null;
@@ -265,7 +289,42 @@ function inlineDescriptionParts(text: string): InlineDescriptionPart[] {
     if (video) demoVideoFrames.set(video, frame);
   }
 
+  function cancelDemoPosterRelease(video: HTMLVideoElement): void {
+    const frame = demoPosterReleaseFrames.get(video);
+    if (frame !== undefined) {
+      window.cancelAnimationFrame(frame);
+      demoPosterReleaseFrames.delete(video);
+    }
+  }
+
+  function clearDemoVideoReady(video: HTMLVideoElement): void {
+    cancelDemoPosterRelease(video);
+    demoVideoFrames.get(video)?.removeAttribute('data-demo-video-ready');
+  }
+
+  function releaseDemoPosterAfterVideoPaint(video: HTMLVideoElement): void {
+    const frame = demoVideoFrames.get(video);
+    if (!frame || frame.hasAttribute('data-demo-video-ready')) return;
+    if (demoPosterReleaseFrames.has(video)) return;
+
+    const firstFrame = window.requestAnimationFrame(() => {
+      const secondFrame = window.requestAnimationFrame(() => {
+        demoPosterReleaseFrames.delete(video);
+        if (
+          video === activeDemoVideo &&
+          !isDemoPlaybackPaused &&
+          video.readyState >= DEMO_VIDEO_READY_STATE
+        ) {
+          frame.setAttribute('data-demo-video-ready', '');
+        }
+      });
+      demoPosterReleaseFrames.set(video, secondFrame);
+    });
+    demoPosterReleaseFrames.set(video, firstFrame);
+  }
+
   function resetDemoVideo(video: HTMLVideoElement): void {
+    clearDemoVideoReady(video);
     video.pause();
     if (video.currentTime > 0.05) {
       try {
@@ -372,9 +431,12 @@ function inlineDescriptionParts(text: string): InlineDescriptionPart[] {
     }
 
     if (next.paused) {
-      void next.play().catch(() => {
-        // Autoplay can still be blocked in unusual browser settings; leave controls hidden.
-      });
+      void next
+        .play()
+        .then(() => releaseDemoPosterAfterVideoPaint(next))
+        .catch(() => {
+          // Autoplay can still be blocked in unusual browser settings; leave controls hidden.
+        });
     }
   }
 
@@ -411,6 +473,8 @@ function inlineDescriptionParts(text: string): InlineDescriptionPart[] {
 
       frame.setAttribute('role', 'button');
       frame.tabIndex = 0;
+      video.addEventListener('playing', () => releaseDemoPosterAfterVideoPaint(video));
+      video.addEventListener('timeupdate', () => releaseDemoPosterAfterVideoPaint(video));
       frame.addEventListener('click', () => toggleDemoVideo(video));
       frame.addEventListener('keydown', (event) => {
         if (event.key === 'Enter' || event.key === ' ') {

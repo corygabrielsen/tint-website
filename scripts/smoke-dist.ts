@@ -80,6 +80,16 @@ function extractScriptSrcs(html: string): string[] {
     .filter((src): src is string => Boolean(src));
 }
 
+function extractStylesheetHrefs(html: string): string[] {
+  return [
+    ...html.matchAll(
+      /<link\b[^>]*\brel\s*=\s*["']stylesheet["'][^>]*\bhref\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+))/gi,
+    ),
+  ]
+    .map((match) => match[1] ?? match[2] ?? match[3])
+    .filter((href): href is string => Boolean(href));
+}
+
 function extractModuleSpecs(script: string): string[] {
   const specs: string[] = [];
   const patterns = [
@@ -154,6 +164,18 @@ async function readPageScripts(html: string): Promise<string[]> {
   }
 
   return scripts;
+}
+
+async function readPageStyles(html: string): Promise<string[]> {
+  const styles = [...html.matchAll(/<style\b[^>]*>([\s\S]*?)<\/style>/g)].map((m) => m[1] ?? '');
+
+  for (const href of extractStylesheetHrefs(html)) {
+    if (href.startsWith('/') && !href.startsWith('//')) {
+      styles.push(await readDistFile(href.slice(1)));
+    }
+  }
+
+  return styles;
 }
 
 function decodeHtmlEntities(s: string): string {
@@ -284,6 +306,9 @@ function checkDemoFallbackLinks(html: string): void {
   for (const [i, frame] of frames.entries()) {
     const videoTag = frame.match(/<video\b[^>]*>/)?.[0];
     const videoSrc = videoTag ? getAttr(videoTag, 'src') : undefined;
+    const videoPoster = videoTag ? getAttr(videoTag, 'poster') : undefined;
+    const posterTag = frame.match(/<img\b[^>]*\bdata-demo-poster\b[^>]*>/)?.[0];
+    const posterSrc = posterTag ? getAttr(posterTag, 'src') : undefined;
     const fallback = frame.match(
       /<noscript\b[\s\S]*?<a\b[^>]*\bhref\s*=\s*"([^"]+)"[^>]*>[\s\S]*?<\/a>[\s\S]*?<\/noscript>/,
     );
@@ -298,7 +323,44 @@ function checkDemoFallbackLinks(html: string): void {
       );
       checkRootLocalAssetPath(`demo fallback href ${i}`, fallbackHref);
     }
+
+    check(Boolean(videoPoster), `demo video frame ${i}: missing video poster`);
+    check(Boolean(posterTag), `demo video frame ${i}: missing poster shim image`);
+    if (videoPoster && posterSrc) {
+      check(
+        posterSrc === videoPoster,
+        `demo video frame ${i}: poster shim src ${posterSrc} does not match video poster ${videoPoster}`,
+      );
+      checkRootLocalAssetPath(`demo poster shim ${i}`, posterSrc);
+    }
+    if (posterTag) {
+      check(getAttr(posterTag, 'alt') === '', `demo poster shim ${i}: alt must be empty`);
+      check(
+        getAttr(posterTag, 'aria-hidden') === 'true',
+        `demo poster shim ${i}: must be aria-hidden`,
+      );
+      check(
+        getAttr(posterTag, 'loading') === 'eager',
+        `demo poster shim ${i}: must load eagerly before scroll/playback`,
+      );
+      check(
+        getAttr(posterTag, 'decoding') === 'sync',
+        `demo poster shim ${i}: must request synchronous decode to avoid first-paint flashes`,
+      );
+    }
   }
+}
+
+function checkDemoPosterStyles(styles: string[]): void {
+  const hasPosterShimStyles = styles.some(
+    (s) =>
+      s.includes('.demo-poster') &&
+      s.includes('position:absolute') &&
+      s.includes('object-fit:cover') &&
+      s.includes('data-demo-video-ready') &&
+      s.includes('opacity:0'),
+  );
+  check(hasPosterShimStyles, 'no bundled CSS layers the demo poster shim above the video');
 }
 
 function checkDemoVideoController(scripts: string[]): void {
@@ -306,6 +368,7 @@ function checkDemoVideoController(scripts: string[]): void {
     (s) =>
       s.includes('data-demo-frame') &&
       s.includes('data-demo-video') &&
+      s.includes('data-demo-video-ready') &&
       s.includes('IntersectionObserver') &&
       s.includes('prefers-reduced-motion: reduce') &&
       s.includes('matchMedia') &&
@@ -318,7 +381,10 @@ function checkDemoVideoController(scripts: string[]): void {
       runtimeRoleButtonPattern.test(s) &&
       /addEventListener\(["']click["']/.test(s) &&
       /addEventListener\(["']keydown["']/.test(s) &&
+      /addEventListener\(["']playing["']/.test(s) &&
+      /addEventListener\(["']timeupdate["']/.test(s) &&
       /addEventListener\(["']scroll["']/.test(s) &&
+      s.includes('cancelAnimationFrame') &&
       s.includes('requestAnimationFrame') &&
       s.includes('currentTime') &&
       s.includes('.pause()') &&
@@ -646,6 +712,7 @@ async function checkWranglerConfig(): Promise<void> {
 const html = await readDistFile('index.html');
 const notFoundHtml = await readDistFile('404.html');
 const pageScripts = await readPageScripts(html);
+const pageStyles = await readPageStyles(html);
 const videoSrcs = extractVideoSrcs(html);
 
 checkSmokeParserSelfTests();
@@ -662,6 +729,7 @@ checkInstallWidget(html, pageScripts);
 checkCopyButtons(html, pageScripts);
 await checkVideoElements(html);
 checkDemoFallbackLinks(html);
+checkDemoPosterStyles(pageStyles);
 checkDemoVideoController(pageScripts);
 checkFeatureDemos(html);
 checkIconOnlyLinks(html);
