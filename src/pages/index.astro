@@ -472,6 +472,25 @@ function inlineDescriptionParts(text: string): InlineDescriptionPart[] {
     }
   }
 
+  function addMediaQueryChangeListener(
+    query: MediaQueryList,
+    handler: (event: MediaQueryListEvent) => void,
+  ): void {
+    const legacyQuery = query as unknown as {
+      readonly addListener?: (handler: (event: MediaQueryListEvent) => void) => void;
+    };
+
+    if (typeof query.addEventListener === 'function') {
+      try {
+        query.addEventListener('change', handler);
+        return;
+      } catch {
+        // Older WebKit exposes addEventListener but only supports addListener.
+      }
+    }
+    if (typeof legacyQuery.addListener === 'function') legacyQuery.addListener(handler);
+  }
+
   if (demoVideos.length > 0) {
     if ('IntersectionObserver' in window) {
       const thresholds = Array.from({ length: 11 }, (_, i) => i / 10);
@@ -508,7 +527,7 @@ function inlineDescriptionParts(text: string): InlineDescriptionPart[] {
       if (event.matches) isDemoPlaybackPaused = true;
       scheduleDemoPlaybackUpdate();
     };
-    reducedMotionQuery.addEventListener('change', handleReducedMotionChange);
+    addMediaQueryChangeListener(reducedMotionQuery, handleReducedMotionChange);
     scheduleDemoPlaybackUpdate();
   }
 </script>
