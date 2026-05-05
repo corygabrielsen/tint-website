@@ -65,13 +65,19 @@ const { code, variant = 'panel' } = Astro.props;
 </button>
 
 <style>
-  /* `all: unset` strips browser <button> defaults so the button can
-     adopt the same visual rhythm as a code block. We have to put back
-     box-sizing (the global * reset is undone by `all: unset`) and a
-     visible focus ring (the default ring is gone too). */
+  /* Targeted resets (instead of `all: unset`) so the bg-painting
+     responsibility can sit cleanly on .code-card without a specificity
+     fight. `all: unset` would set background to its initial value
+     (transparent) at scoped specificity, beating .code-card's
+     var(--code-bg) and leaving card-variant buttons unpainted. */
   .copy-command {
-    all: unset;
+    appearance: none;
+    -webkit-appearance: none;
     box-sizing: border-box;
+    border: none;
+    margin: 0;
+    font: inherit;
+    text-align: left;
     display: flex;
     /* Anchor the icon to the top of the row so it sits beside the first
        line of long wrapped commands instead of drifting to the visual
@@ -85,6 +91,13 @@ const { code, variant = 'panel' } = Astro.props;
     color: var(--fg);
     font-family: var(--mono);
     cursor: pointer;
+  }
+
+  /* Default (panel) variant: transparent so the surrounding container's
+     frame shows through. Card variant skips this and inherits bg +
+     border from the global .code-card class. */
+  .copy-command:not(.code-card) {
+    background: transparent;
   }
 
   .copy-command:hover {
