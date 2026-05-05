@@ -18,12 +18,30 @@ const repoUrl = 'https://github.com/corygabrielsen/tint';
 //
 // `as const` narrows the tuple so labels stay accurate to source order.
 // CommandTabs's :nth-of-type CSS supports up to 6 tabs per level — adding
-// a third install method here renders correctly without further changes.
+// further install methods or sub-methods renders correctly without
+// further changes.
+//
+// Sub-tab order matters: the first child gets the default-checked radio
+// in CommandTabs, so the leftmost git sub-tab is what a viewer sees on
+// first reveal. ssh is leftmost because git-clone-via-ssh is the most
+// common developer workflow for this audience.
 const installTabs = [
   { label: 'brew', code: 'brew install corygabrielsen/tint/tint' },
   {
     label: 'curl',
     code: 'curl -fsSL https://tint.sh/tint -o ~/.local/bin/tint && chmod +x ~/.local/bin/tint',
+  },
+  {
+    label: 'git',
+    tabs: [
+      // Mirror GitHub's clone dropdown: https leftmost (newcomer-friendly,
+      // works with no setup), ssh auto-selected (the typical reader has
+      // a key on file and prefers it).
+      { label: 'https', code: 'git clone https://github.com/corygabrielsen/tint.git' },
+      { label: 'ssh',   code: 'git clone git@github.com:corygabrielsen/tint.git', default: true },
+      { label: 'gh',    code: 'gh repo clone corygabrielsen/tint' },
+      { label: 'gt',    code: 'gt clone corygabrielsen/tint' },
+    ],
   },
 ] as const;
 

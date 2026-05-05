@@ -45,11 +45,18 @@ import CopyCommand from './CopyCommand.astro';
 interface Leaf {
   readonly label: string;
   readonly code: string;
+  // Mark this tab as the default-selected one. Falls back to index 0 if
+  // no tab is flagged. Mirrors GitHub's clone-dropdown convention where
+  // https is leftmost (mass-friendly default discoverable to outsiders)
+  // but ssh is auto-selected (developer-friendly default for the
+  // typical reader).
+  readonly default?: boolean;
 }
 
 interface Branch {
   readonly label: string;
   readonly tabs: readonly Leaf[];
+  readonly default?: boolean;
 }
 
 export type Tab = Leaf | Branch;
@@ -68,6 +75,9 @@ const { tabs, id = `command-tabs-${randomUUID()}` } = Astro.props;
 function isLeaf(tab: Tab): tab is Leaf {
   return 'code' in tab;
 }
+
+const flagged = tabs.findIndex((t) => t.default);
+const defaultIndex = flagged === -1 ? 0 : flagged;
 ---
 
 <fieldset class="command-tabs code-card" id={id}>
@@ -82,7 +92,7 @@ function isLeaf(tab: Tab): tab is Leaf {
       type="radio"
       name={`${id}-radios`}
       id={`${id}-${i}`}
-      checked={i === 0}
+      checked={i === defaultIndex}
     />
   ))}
   <div class="tabs">
