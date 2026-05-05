@@ -126,12 +126,12 @@ The harness imports the same `wireDemoVideos()` function the homepage runs, then
 
 ### `smoke-dist.ts` — static checks against `dist/` and `wrangler.jsonc`
 
-**Install widget** (`checkInstallWidget`)
+**Install tabs** (`checkInstallTabs`)
 
-- Renders exactly two `data-copy` buttons (brew + curl) inside the `.install-widget` fieldset.
+- Renders exactly two `data-copy` buttons (brew + curl) inside the install `.command-tabs` fieldset (the first `.command-tabs` on the page).
 - Each button's `aria-label` equals `Copy ${data-code}` (after HTML-entity decoding).
 - At least one button's `data-code` references `https://tint.sh/tint` (install-URL drift guard).
-- An inlined `<script>` references the `.install-widget [data-copy]` selector (handler-wiring guard).
+- Page-wide copy wiring (`checkCopyButtons`) verifies a single bundled script ships the literal `[data-copy]` selector — applies to every CopyCommand, including the install tabs.
 
 **Analytics** (`checkPlausibleSnippet`, every HTML page)
 

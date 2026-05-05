@@ -291,7 +291,7 @@ a:hover {
 }
 
 /* Shiki's pre→span tokenization output, used wherever HighlightedCommand
-   renders. Single source of truth — InstallWidget panels, per-feature
+   renders. Single source of truth — CommandTabs panels, per-feature
    CopyCommand cards, and any future copy surface all read from this
    rule. Lives in global.css (not a scoped component <style>) because
    shiki's <Code> output doesn't carry an Astro component scope hash, so

@@ -1,0 +1,192 @@
+---
+// CommandTabs: tabbed copy-command widget. Two levels of nesting max.
+//
+// Flat case (current install + cd-hook usage):
+//   <CommandTabs tabs={[
+//     { label: 'brew', code: 'brew install …' },
+//     { label: 'curl', code: 'curl -fsSL …' },
+//   ]} />
+//
+// Nested case (e.g., bash | zsh | git, where git → https/ssh/gh/gt):
+//   <CommandTabs tabs={[
+//     { label: 'bash', code: '…' },
+//     { label: 'zsh',  code: '…' },
+//     { label: 'git',  tabs: [
+//       { label: 'https', code: '…' },
+//       { label: 'ssh',   code: '…' },
+//       { label: 'gh',    code: '…' },
+//       { label: 'gt',    code: '…' },
+//     ]},
+//   ]} />
+//
+// Design notes:
+//
+// - Tab state is driven by hidden radio inputs + `:has(> input:checked)`
+//   pure-CSS, no JS. The `>` direct-child combinators inside `:has()`
+//   scope each level's switching to its own radios, so a nested widget's
+//   tabs don't trip the outer tabs' active state.
+//
+// - The recursive type bottoms out at one level: `Branch` holds `Leaf[]`,
+//   not `Tab[]`. This caps depth at 2 in the type system. If a third
+//   level becomes useful, generalize then; we don't need it now and the
+//   shallow shape keeps the data structure scannable.
+//
+// - Up to 6 tabs per level. The active-state CSS rules are pre-emitted
+//   for `:nth-of-type(1..6)`. Above 6, the type still admits the values
+//   but the active styles silently stop applying — bumping the cap is a
+//   mechanical edit, but pinning forces an intentional review.
+//
+// - Nested chrome: a descendant-selector rule strips border + bg from
+//   any nested .command-tabs. The outer .code-card frame is the only
+//   bordered surface; nested tabs read as a sub-row inside that surface.
+import { randomUUID } from 'node:crypto';
+import CopyCommand from './CopyCommand.astro';
+
+interface Leaf {
+  readonly label: string;
+  readonly code: string;
+}
+
+interface Branch {
+  readonly label: string;
+  readonly tabs: readonly Leaf[];
+}
+
+export type Tab = Leaf | Branch;
+
+interface Props {
+  tabs: readonly Tab[];
+  // Unique id for this widget instance. Defaults to a per-render UUID
+  // so two widgets on the same page don't collide on radio name and
+  // `${id}-${i}` ids that wire labels to inputs. Override only when
+  // you need to target the fieldset from outside.
+  id?: string;
+}
+
+const { tabs, id = `command-tabs-${randomUUID()}` } = Astro.props;
+
+function isLeaf(tab: Tab): tab is Leaf {
+  return 'code' in tab;
+}
+---
+
+<fieldset class="command-tabs code-card" id={id}>
+  <legend class="sr-only">Choose</legend>
+  {/* Three separate maps so the radios, labels, and panels stay in stable
+      source order: the :nth-of-type / :nth-child selectors below match by
+      position, not id, so a single combined loop would shuffle the order
+      and break the active-tab mapping. */}
+  {tabs.map((_t, i) => (
+    <input
+      class="sr-only"
+      type="radio"
+      name={`${id}-radios`}
+      id={`${id}-${i}`}
+      checked={i === 0}
+    />
+  ))}
+  <div class="tabs">
+    {tabs.map((tab, i) => (
+      <label for={`${id}-${i}`}>{tab.label}</label>
+    ))}
+  </div>
+  <div class="panels">
+    {tabs.map((tab) => (
+      <div class="panel">
+        {isLeaf(tab) ? (
+          <CopyCommand code={tab.code} />
+        ) : (
+          <Astro.self tabs={tab.tabs} />
+        )}
+      </div>
+    ))}
+  </div>
+</fieldset>
+
+<style>
+  .command-tabs {
+    /* fieldset and flex-item defaults treat min-inline-size as min-content,
+       which lets long commands stretch the widget past the viewport.
+       Resetting both lets the inner code element handle layout instead.
+       Width itself comes from the parent layout — same as the video and
+       any other full-width child of <main>; chrome (border + bg) comes
+       from .code-card. */
+    min-width: 0;
+    min-inline-size: 0;
+  }
+
+  .command-tabs > .panels,
+  .command-tabs > .panels > .panel {
+    min-width: 0;
+  }
+
+  .command-tabs > .tabs {
+    display: flex;
+    border-bottom: 1px solid var(--border);
+    font-family: var(--mono);
+    font-size: 0.875rem;
+  }
+
+  .command-tabs > .tabs label {
+    padding: 0.5rem 1rem;
+    cursor: pointer;
+    color: var(--muted);
+    border-right: 1px solid var(--border);
+    user-select: none;
+  }
+
+  .command-tabs > .tabs label:hover {
+    color: var(--fg);
+  }
+
+  /* Active tab "pops out" of the panel by switching to the page bg.
+     Pre-emitted up to 6 tabs per level. Direct-child combinators inside
+     :has() scope the trigger and target to the same fieldset, so a
+     nested .command-tabs's radios don't drive the outer's active state.
+     Add :nth-of-type(7), (8), … here if a level grows past 6. */
+  .command-tabs:has(> input:nth-of-type(1):checked) > .tabs label:nth-child(1),
+  .command-tabs:has(> input:nth-of-type(2):checked) > .tabs label:nth-child(2),
+  .command-tabs:has(> input:nth-of-type(3):checked) > .tabs label:nth-child(3),
+  .command-tabs:has(> input:nth-of-type(4):checked) > .tabs label:nth-child(4),
+  .command-tabs:has(> input:nth-of-type(5):checked) > .tabs label:nth-child(5),
+  .command-tabs:has(> input:nth-of-type(6):checked) > .tabs label:nth-child(6) {
+    color: var(--fg);
+    background: var(--bg);
+  }
+
+  .command-tabs:has(> input:nth-of-type(1):focus-visible) > .tabs label:nth-child(1),
+  .command-tabs:has(> input:nth-of-type(2):focus-visible) > .tabs label:nth-child(2),
+  .command-tabs:has(> input:nth-of-type(3):focus-visible) > .tabs label:nth-child(3),
+  .command-tabs:has(> input:nth-of-type(4):focus-visible) > .tabs label:nth-child(4),
+  .command-tabs:has(> input:nth-of-type(5):focus-visible) > .tabs label:nth-child(5),
+  .command-tabs:has(> input:nth-of-type(6):focus-visible) > .tabs label:nth-child(6) {
+    outline: 2px solid var(--fg);
+    outline-offset: -2px;
+  }
+
+  /* :has()-capable browsers hide all panels and reveal the active one;
+     browsers without :has() show all panels (degraded but functional
+     instead of a blank widget). */
+  @supports selector(:has(*)) {
+    .command-tabs > .panels > .panel {
+      display: none;
+    }
+
+    .command-tabs:has(> input:nth-of-type(1):checked) > .panels > .panel:nth-child(1),
+    .command-tabs:has(> input:nth-of-type(2):checked) > .panels > .panel:nth-child(2),
+    .command-tabs:has(> input:nth-of-type(3):checked) > .panels > .panel:nth-child(3),
+    .command-tabs:has(> input:nth-of-type(4):checked) > .panels > .panel:nth-child(4),
+    .command-tabs:has(> input:nth-of-type(5):checked) > .panels > .panel:nth-child(5),
+    .command-tabs:has(> input:nth-of-type(6):checked) > .panels > .panel:nth-child(6) {
+      display: block;
+    }
+  }
+
+  /* Nested .command-tabs: the outer .code-card frame is the only bordered
+     surface. Strip the second frame so nested tabs read as a sub-row
+     inside the outer panel rather than a card-in-a-card. */
+  .command-tabs .command-tabs {
+    border: none;
+    background: transparent;
+  }
+</style>

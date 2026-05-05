@@ -1,7 +1,7 @@
 ---
 import Layout from '~/layouts/Layout.astro';
 import GitHubMark from '~/components/GitHubMark.astro';
-import InstallWidget from '~/components/InstallWidget.astro';
+import CommandTabs from '~/components/CommandTabs.astro';
 import CopyCommand from '~/components/CopyCommand.astro';
 
 const repoUrl = 'https://github.com/corygabrielsen/tint';
@@ -16,11 +16,10 @@ const repoUrl = 'https://github.com/corygabrielsen/tint';
 // per-asset `download_count`; the Worker fires a Plausible
 // `tint_download` event in parallel.
 //
-// `as const` narrows this to a 2-tuple so it satisfies InstallWidget's
-// `readonly [Command, Command]` prop. Adding a third install method here
-// without first extending the widget's :nth-of-type CSS would now be a
-// compile error rather than a silently broken tab.
-const installCommands = [
+// `as const` narrows the tuple so labels stay accurate to source order.
+// CommandTabs's :nth-of-type CSS supports up to 6 tabs per level — adding
+// a third install method here renders correctly without further changes.
+const installTabs = [
   { label: 'brew', code: 'brew install corygabrielsen/tint/tint' },
   {
     label: 'curl',
@@ -140,7 +139,7 @@ function inlineDescriptionParts(text: string): InlineDescriptionPart[] {
       <p class="tagline">Terminal theme switcher.</p>
     </header>
 
-    <InstallWidget commands={installCommands} />
+    <CommandTabs tabs={installTabs} />
 
     <div class="demo-frame" data-demo-frame>
       <video
@@ -184,7 +183,7 @@ function inlineDescriptionParts(text: string): InlineDescriptionPart[] {
               )}
             </p>
             {demo.commands ? (
-              <InstallWidget commands={demo.commands} id={`cmd-${demo.id}`} />
+              <CommandTabs tabs={demo.commands} id={`cmd-${demo.id}`} />
             ) : (
               <CopyCommand code={demo.command} variant="card" />
             )}

@@ -481,7 +481,7 @@ function checkCopyButtons(html: string, scripts: string[]): void {
 
 function checkFeatureDemos(html: string): void {
   // Each section's expected SET of data-code values. Most features have
-  // one CopyCommand; the cd-hook feature uses an InstallWidget pair so
+  // one CopyCommand; the cd-hook feature uses a CommandTabs pair so
   // its panels emit two — bash and zsh, identical bodies, eval target
   // differs. Order mirrors the rendered section order (apply-by-name,
   // cd-hook, picker, custom-theme).
@@ -583,15 +583,23 @@ function checkLabelControlWiring(html: string): void {
   }
 }
 
-// Extract the rendered install-widget fieldset from the page so per-feature
-// assertions don't accidentally couple to the rest of the document. Without
-// this, a `data-copy` button added anywhere else on the homepage (e.g. a
-// future "copy share link" button) would break a check that's only meant
-// to protect the install widget. The fieldset is non-nesting in our markup,
-// so a non-greedy match through `</fieldset>` is safe.
-function extractInstallWidget(html: string): string | undefined {
+// Extract the install widget's CommandTabs fieldset (the first .command-tabs
+// in the document, which is the install tabs at the top of the page) so
+// per-install assertions don't accidentally couple to the rest of the
+// document. Without this, a `data-copy` button added anywhere else on the
+// homepage (e.g. a future "copy share link" button) would break a check
+// that's only meant to protect the install tabs. Per-feature CommandTabs
+// (e.g., the cd-hook bash/zsh tabs) come later in the document, so the
+// non-greedy first-match returns the install tabs every time.
+//
+// Two-level nesting: the regex's non-greedy `</fieldset>` would close on
+// the first inner `</fieldset>` if the install tabs ever nested another
+// CommandTabs inside one of its panels. They don't today, but if they
+// later do, switch this to a balanced match. Per-feature tabs do not
+// share this concern: this extractor is scoped to the install tabs only.
+function extractInstallTabs(html: string): string | undefined {
   const match = html.match(
-    /<fieldset\b[^>]*\bclass\s*=\s*"[^"]*\binstall-widget\b[^"]*"[\s\S]*?<\/fieldset>/,
+    /<fieldset\b[^>]*\bclass\s*=\s*"[^"]*\bcommand-tabs\b[^"]*"[\s\S]*?<\/fieldset>/,
   );
   return match?.[0];
 }
@@ -599,13 +607,13 @@ function extractInstallWidget(html: string): string | undefined {
 // Structural assertions for the install widget. These catch the regression
 // classes the click handler is most exposed to: missing/wrong data-code,
 // aria-label drift, and — most importantly — the inlined <script> losing
-// the `.install-widget [data-copy]` selector that wires the handler to
+// the `.install command-tabs [data-copy]` selector that wires the handler to
 // the rendered buttons. Without this last check, a selector or bundling
 // regression would ship silently because nothing exercises the handler
 // at runtime in CI.
-function checkInstallWidget(html: string): void {
-  const widget = extractInstallWidget(html);
-  check(Boolean(widget), 'install-widget fieldset not found in rendered HTML');
+function checkInstallTabs(html: string): void {
+  const widget = extractInstallTabs(html);
+  check(Boolean(widget), 'install command-tabs fieldset not found in rendered HTML');
   if (!widget) return;
   // Scope the button query to the widget container — the data-copy
   // attribute is a generic copy-to-clipboard hook, so a future copy
@@ -613,7 +621,7 @@ function checkInstallWidget(html: string): void {
   const buttons = [...widget.matchAll(/<button\b[^>]*\bdata-copy\b[^>]*>/g)].map((m) => m[0]);
   check(
     buttons.length === 2,
-    `expected 2 install-widget buttons (brew + curl), found ${buttons.length}`,
+    `expected 2 install command-tabs buttons (brew + curl), found ${buttons.length}`,
   );
 
   for (const [i, tag] of buttons.entries()) {
@@ -642,7 +650,7 @@ function checkInstallWidget(html: string): void {
     `no install button references https://tint.sh/tint — install URL drift (saw: ${installUrls.join(' | ')})`,
   );
 
-  // The install-widget panels are CopyCommand instances; copy wiring is
+  // The install command-tabs panels are CopyCommand instances; copy wiring is
   // the page-wide `[data-copy]` selector hoisted from CopyCommand's
   // <script>. `checkCopyButtons` verifies that selector is present in
   // the bundle, so we don't re-check it here — the widget's contract
@@ -782,7 +790,7 @@ for (const videoSrc of videoSrcs) {
   await checkNonEmptyFile(videoSrc);
 }
 
-checkInstallWidget(html);
+checkInstallTabs(html);
 checkCopyButtons(html, pageScripts);
 await checkVideoElements(html);
 checkDemoFallbackLinks(html);
