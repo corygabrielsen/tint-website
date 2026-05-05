@@ -5,6 +5,8 @@ const dist = new URL('../dist/', import.meta.url);
 const errors: string[] = [];
 const runtimeRoleButtonPattern = /\.setAttribute\(\s*(['"])role\1\s*,\s*(['"])button\2\s*\)/;
 const runtimeFrameLabelPattern = /\$\{\s*\w+\s*\?\s*(['"])Pause\1\s*:\s*(['"])Play\2\s*\}:\s*\$\{/;
+const runtimeInitialPressedPattern =
+  /\.setAttribute\(\s*(['"])aria-pressed\1\s*,\s*(['"])false\2\s*\)/;
 const reducedMotionInitialPausePattern =
   /matchMedia\(\s*(['"])\(prefers-reduced-motion: reduce\)\1\s*\)[\s\S]{0,240}?\blet\b[\s\S]{0,160}?\b\w+\s*=\s*\w+\.matches\b/;
 const reducedMotionChangePausePattern =
@@ -125,6 +127,10 @@ function checkSmokeParserSelfTests(): void {
   ]) {
     check(runtimeRoleButtonPattern.test(sample), `role=button parser rejected ${sample}`);
   }
+  check(
+    runtimeInitialPressedPattern.test('frame.setAttribute("aria-pressed","false")'),
+    'initial aria-pressed parser rejected minified sample',
+  );
 
   check(
     reducedMotionInitialPausePattern.test(
@@ -379,6 +385,7 @@ function checkDemoVideoController(scripts: string[]): void {
       s.includes('getAttribute("aria-label")') &&
       runtimeFrameLabelPattern.test(s) &&
       runtimeRoleButtonPattern.test(s) &&
+      runtimeInitialPressedPattern.test(s) &&
       /addEventListener\(["']click["']/.test(s) &&
       /addEventListener\(["']keydown["']/.test(s) &&
       /addEventListener\(["']playing["']/.test(s) &&

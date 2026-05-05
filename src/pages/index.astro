@@ -471,8 +471,6 @@ function inlineDescriptionParts(text: string): InlineDescriptionPart[] {
       const video = frame.querySelector<HTMLVideoElement>('[data-demo-video]');
       if (!video) continue;
 
-      frame.setAttribute('role', 'button');
-      frame.tabIndex = 0;
       video.addEventListener('playing', () => releaseDemoPosterAfterVideoPaint(video));
       video.addEventListener('timeupdate', () => releaseDemoPosterAfterVideoPaint(video));
       frame.addEventListener('click', () => toggleDemoVideo(video));
@@ -482,6 +480,10 @@ function inlineDescriptionParts(text: string): InlineDescriptionPart[] {
           toggleDemoVideo(video);
         }
       });
+      frame.setAttribute('aria-label', demoFrameLabel(video, false));
+      frame.setAttribute('aria-pressed', 'false');
+      frame.setAttribute('role', 'button');
+      frame.tabIndex = 0;
     }
 
     window.addEventListener('scroll', clearManualDemoVideo, { passive: true });
