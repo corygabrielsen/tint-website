@@ -305,15 +305,20 @@ a:hover {
   outline-offset: -2px;
 }
 
-.feature-command code {
+/* Shiki's pre→span output. pre-wrap preserves the literal newlines
+   between line spans; break-all keeps long URLs from pushing the icon
+   column off-screen. Background override neutralizes the astro-code
+   default so hover/focus states paint the whole button uniformly. */
+.feature-command .command-body {
   display: block;
   flex: 1 1 0;
   min-width: 0;
-  white-space: pre-wrap;
-  word-break: break-all;
   font-family: inherit;
   font-size: 0.875rem;
   line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-all;
+  background: transparent;
 }
 
 .feature-copy-status {

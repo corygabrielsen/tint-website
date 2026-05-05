@@ -62,8 +62,16 @@ interface Props {
 
 const { commands, id = `install-widget-${randomUUID()}` } = Astro.props;
 
-const stripTabindex: ShikiTransformer = {
+// Convert shiki's outer <pre> wrapper into a <span>. <pre> is flow content
+// and forbidden inside <button>; <span> is phrasing content and allowed.
+// We need full-block (non-inline) shiki so multi-line tokenization sees
+// constructs like heredocs as a whole — inline mode would tokenize each
+// line independently, which mis-colors EOF terminators and heredoc bodies
+// as standalone commands. We also drop tabindex (default-set by shiki, but
+// invalid on <span> and on any descendant of <button>).
+const preToSpan: ShikiTransformer = {
   pre(node) {
+    node.tagName = 'span';
     if (node.properties && 'tabindex' in node.properties) {
       delete node.properties.tabindex;
     }
@@ -105,9 +113,8 @@ const stripTabindex: ShikiTransformer = {
             code={cmd.code}
             lang="sh"
             theme="css-variables"
-            inline
-            class="command-script"
-            transformers={[stripTabindex]}
+            class="command-body"
+            transformers={[preToSpan]}
           />
           <span class="copy-status">
             <svg
@@ -254,24 +261,27 @@ const stripTabindex: ShikiTransformer = {
     outline-offset: -2px;
   }
 
-  /* The script slot is the inner <code> that holds shiki's token spans.
-     `flex: 1 1 0; min-width: 0` lets it shrink below its intrinsic content
-     width so the wrap rules below can break long URLs at the row's right
-     edge instead of pushing the icon off-screen. `<code>` is inline by
-     default; switching to block + `pre-wrap` reproduces the terminal-style
-     layout we'd get from <pre> while keeping the markup valid inside the
-     parent <button> (block elements aren't allowed there). `break-all`
-     lets long URLs and paths split mid-character — honesty over
-     compactness, since `…`-style truncation obscures what users are
-     piping into a shell. */
-  .install-widget .command-script {
+  /* The script slot is the <span> shiki produces (after preToSpan rewires
+     the wrapper from <pre>) containing the tokenized <code>. `flex: 1 1 0;
+     min-width: 0` lets it shrink below intrinsic content width so the
+     wrap rules below break long URLs at the row's right edge instead of
+     pushing the icon off-screen. `pre-wrap` preserves the literal
+     newlines shiki emits between lines without forcing a horizontal
+     scrollbar; `break-all` lets long URLs and paths split mid-character —
+     honesty over compactness, since `…`-style truncation obscures what
+     users are piping into a shell. shiki's astro-code class sets a
+     background colour by default; we override to transparent so the row
+     hover/focus states paint the whole button uniformly. */
+  .install-widget .command-body {
     display: block;
     flex: 1 1 0;
     min-width: 0;
     font-family: inherit;
     font-size: 0.875rem;
+    line-height: 1.5;
     white-space: pre-wrap;
     word-break: break-all;
+    background: transparent;
   }
 
   .install-widget .copy-status {

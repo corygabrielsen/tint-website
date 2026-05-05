@@ -1,7 +1,25 @@
 ---
 import Layout from '~/layouts/Layout.astro';
+import { Code } from 'astro:components';
+import type { ShikiTransformer } from 'shiki';
 import GitHubMark from '~/components/GitHubMark.astro';
 import InstallWidget from '~/components/InstallWidget.astro';
+
+// Convert shiki's outer <pre> wrapper into a <span> so the highlighted
+// code is valid inside the per-feature <button>. Full-block (non-inline)
+// shiki gives correct multi-line tokenization for constructs like
+// heredocs — inline-per-line would mis-tag the EOF terminator and
+// heredoc body as standalone commands. Same transformer as
+// InstallWidget; kept inline here instead of factoring out for a
+// six-line helper.
+const preToSpan: ShikiTransformer = {
+  pre(node) {
+    node.tagName = 'span';
+    if (node.properties && 'tabindex' in node.properties) {
+      delete node.properties.tabindex;
+    }
+  },
+};
 
 const repoUrl = 'https://github.com/corygabrielsen/tint';
 
@@ -47,6 +65,9 @@ const themeColors = [
   '#AC5374',
 ];
 
+const cdHookBody = `mkdir -p /tmp/tinted && echo nord > /tmp/tinted/.tint
+cd /tmp/tinted`;
+
 const featureDemos = [
   {
     id: 'apply-by-name',
@@ -58,6 +79,20 @@ const featureDemos = [
     ariaLabel: 'Applying built-in tint themes by name',
   },
   {
+    id: 'cd-hook',
+    title: 'Switch themes when changing directories',
+    description: 'Install the shell hook once, then add `.tint` files to automatically switch themes when changing directories. Supports Bash and Zsh.',
+    // bash and zsh emit different hook scripts, so the eval target differs
+    // between tabs while the rest of the snippet is identical.
+    commands: [
+      { label: 'bash', code: `eval "$(tint hook bash)"\n${cdHookBody}` },
+      { label: 'zsh',  code: `eval "$(tint hook zsh)"\n${cdHookBody}` },
+    ] as const,
+    src: 'demo-cd-hook.mp4',
+    poster: 'demo-cd-hook-poster.png',
+    ariaLabel: 'Automatically applying tint themes when changing directories',
+  },
+  {
     id: 'picker',
     title: 'Browse and select themes interactively',
     description: 'Run `tint` with no arguments to scroll and select themes interactively in your terminal.',
@@ -65,16 +100,6 @@ const featureDemos = [
     src: 'demo-picker.mp4',
     poster: 'demo-picker-poster.png',
     ariaLabel: 'Selecting a tint theme in the interactive picker',
-  },
-  {
-    id: 'cd-hook',
-    title: 'Switch themes when changing directories',
-    description: 'Install the shell hook once, then add `.tint` files to automatically switch themes when changing directories. Supports Bash and Zsh.',
-    command: `eval "$(tint hook bash)"
-echo dracula > .tint`,
-    src: 'demo-cd-hook.mp4',
-    poster: 'demo-cd-hook-poster.png',
-    ariaLabel: 'Automatically applying tint themes when changing directories',
   },
   {
     id: 'custom-theme',
@@ -144,16 +169,16 @@ function inlineDescriptionParts(text: string): InlineDescriptionPart[] {
         muted
         playsinline
         preload="metadata"
-        width="824"
-        height="450"
-        aria-label="tint demo: picker, CLI, cd-hook auto-tinting, custom theme"
+        width="1704"
+        height="864"
+        aria-label="tint demo: CLI, cd-hook auto-tinting, picker, custom theme"
       ></video>
       <img
         class="demo-poster"
         data-demo-poster
         src="demo-poster.png"
-        width="824"
-        height="450"
+        width="1704"
+        height="864"
         alt=""
         aria-hidden="true"
         loading="eager"
@@ -175,46 +200,56 @@ function inlineDescriptionParts(text: string): InlineDescriptionPart[] {
                 part.code ? <code>{part.text}</code> : part.text,
               )}
             </p>
-            <button
-              type="button"
-              class="feature-command"
-              data-feature-command
-              data-feature-copy
-              data-copy
-              data-code={demo.command}
-              aria-label={`Copy ${demo.command}`}
-            >
-              <code>{demo.command}</code>
-              <span class="feature-copy-status">
-                <svg
-                  class="icon-copy"
-                  width="16"
-                  height="16"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  stroke-width="1.5"
-                  stroke-linecap="square"
-                  aria-hidden="true"
-                >
-                  <path d="M8.75 8.75V2.75H21.25V15.25H15.25M15.25 8.75H2.75V21.25H15.25V8.75Z" />
-                </svg>
-                <svg
-                  class="icon-check"
-                  width="16"
-                  height="16"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  stroke-width="2"
-                  stroke-linecap="square"
-                  aria-hidden="true"
-                >
-                  <path d="M2.75 15.0938L9 20.25L21.25 3.75" />
-                </svg>
-                <span class="feature-copy-announce sr-only" data-copy-announce aria-live="polite"></span>
-              </span>
-            </button>
+            {demo.commands ? (
+              <InstallWidget commands={demo.commands} id={`cmd-${demo.id}`} />
+            ) : (
+              <button
+                type="button"
+                class="feature-command"
+                data-feature-command
+                data-feature-copy
+                data-copy
+                data-code={demo.command}
+                aria-label={`Copy ${demo.command}`}
+              >
+                <Code
+                  code={demo.command}
+                  lang="sh"
+                  theme="css-variables"
+                  class="command-body"
+                  transformers={[preToSpan]}
+                />
+                <span class="feature-copy-status">
+                  <svg
+                    class="icon-copy"
+                    width="16"
+                    height="16"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="1.5"
+                    stroke-linecap="square"
+                    aria-hidden="true"
+                  >
+                    <path d="M8.75 8.75V2.75H21.25V15.25H15.25M15.25 8.75H2.75V21.25H15.25V8.75Z" />
+                  </svg>
+                  <svg
+                    class="icon-check"
+                    width="16"
+                    height="16"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="2"
+                    stroke-linecap="square"
+                    aria-hidden="true"
+                  >
+                    <path d="M2.75 15.0938L9 20.25L21.25 3.75" />
+                  </svg>
+                  <span class="feature-copy-announce sr-only" data-copy-announce aria-live="polite"></span>
+                </span>
+              </button>
+            )}
           </div>
           <div class="demo-frame" data-demo-frame>
             <video
@@ -226,16 +261,16 @@ function inlineDescriptionParts(text: string): InlineDescriptionPart[] {
               muted
               playsinline
               preload="metadata"
-              width="824"
-              height="450"
+              width="1704"
+              height="864"
               aria-label={demo.ariaLabel}
             ></video>
             <img
               class="demo-poster"
               data-demo-poster
               src={demo.poster}
-              width="824"
-              height="450"
+              width="1704"
+              height="864"
               alt=""
               aria-hidden="true"
               loading="eager"
