@@ -1,10 +1,22 @@
+# Dependencies
 node_modules
-dist
+
+# Build output
 .astro
+dist
+
+# Environment
 .env
-.env.production
 .env.local
-.DS_Store
-*.log
+.env.production
+
+# Editors
+.cursor
 .vscode
 .idea
+
+# OS
+.DS_Store
+
+# Logs
+*.log
