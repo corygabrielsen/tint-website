@@ -56,6 +56,7 @@ interface Leaf {
 interface Branch {
   readonly label: string;
   readonly tabs: readonly Leaf[];
+  readonly legend?: string;
   readonly default?: boolean;
 }
 
@@ -63,6 +64,9 @@ export type Tab = Leaf | Branch;
 
 interface Props {
   tabs: readonly Tab[];
+  // Screen-reader label for the radio group. Keep it contextual at
+  // each usage site so nested tab groups announce what is being chosen.
+  legend: string;
   // Unique id for this widget instance. Defaults to a per-render UUID
   // so two widgets on the same page don't collide on radio name and
   // `${id}-${i}` ids that wire labels to inputs. Override only when
@@ -70,7 +74,7 @@ interface Props {
   id?: string;
 }
 
-const { tabs, id = `command-tabs-${randomUUID()}` } = Astro.props;
+const { tabs, legend, id = `command-tabs-${randomUUID()}` } = Astro.props;
 
 function isLeaf(tab: Tab): tab is Leaf {
   return 'code' in tab;
@@ -81,7 +85,7 @@ const defaultIndex = flagged === -1 ? 0 : flagged;
 ---
 
 <fieldset class="command-tabs code-card" id={id}>
-  <legend class="sr-only">Choose</legend>
+  <legend class="sr-only">{legend}</legend>
   {/* Three separate maps so the radios, labels, and panels stay in stable
       source order: the :nth-of-type / :nth-child selectors below match by
       position, not id, so a single combined loop would shuffle the order
@@ -106,7 +110,7 @@ const defaultIndex = flagged === -1 ? 0 : flagged;
         {isLeaf(tab) ? (
           <CopyCommand code={tab.code} />
         ) : (
-          <Astro.self tabs={tab.tabs} />
+          <Astro.self tabs={tab.tabs} legend={tab.legend ?? `${tab.label} method`} />
         )}
       </div>
     ))}

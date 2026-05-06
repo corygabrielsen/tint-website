@@ -34,15 +34,19 @@ const installTabs = [
   {
     label: 'git',
     tabs: [
-      // Mirror GitHub's clone dropdown: https leftmost (newcomer-friendly,
-      // works with no setup), ssh auto-selected (the typical reader has
-      // a key on file and prefers it).
+      // The first three mirror GitHub's clone dropdown. Graphite has no
+      // documented clone wrapper, so its tab clones with git and then
+      // initializes Graphite explicitly.
       { label: 'https', code: 'git clone https://github.com/corygabrielsen/tint.git' },
       { label: 'ssh',   code: 'git clone git@github.com:corygabrielsen/tint.git', default: true },
       { label: 'gh',    code: 'gh repo clone corygabrielsen/tint' },
-      { label: 'gt',    code: 'gt clone corygabrielsen/tint' },
+      {
+        label: 'gt',
+        code: 'git clone git@github.com:corygabrielsen/tint.git && cd tint && gt init --trunk master',
+      },
       { label: 'jj',    code: 'jj git clone git@github.com:corygabrielsen/tint.git' },
     ],
+    legend: 'Repository checkout method',
   },
 ] as const;
 
@@ -158,7 +162,7 @@ function inlineDescriptionParts(text: string): InlineDescriptionPart[] {
       <p class="tagline">Terminal theme switcher.</p>
     </header>
 
-    <CommandTabs tabs={installTabs} />
+    <CommandTabs tabs={installTabs} legend="Install method" />
 
     <div class="demo-frame" data-demo-frame>
       <video
@@ -202,7 +206,7 @@ function inlineDescriptionParts(text: string): InlineDescriptionPart[] {
               )}
             </p>
             {demo.commands ? (
-              <CommandTabs tabs={demo.commands} id={`cmd-${demo.id}`} />
+              <CommandTabs tabs={demo.commands} legend="Shell hook" id={`cmd-${demo.id}`} />
             ) : (
               <CopyCommand code={demo.command} variant="card" />
             )}

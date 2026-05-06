@@ -128,7 +128,8 @@ The harness imports the same `wireDemoVideos()` function the homepage runs, then
 
 **Install tabs** (`checkInstallTabs`)
 
-- Renders exactly two `data-copy` buttons (brew + curl) inside the install `.command-tabs` fieldset (the first `.command-tabs` on the page).
+- Renders exactly seven `data-copy` buttons inside the install `.command-tabs` fieldset: brew, curl, and the five source-checkout sub-tabs (https, ssh, gh, gt, jj).
+- The `gt` sub-tab does not use `gt clone`; Graphite has no documented clone wrapper, so it runs `git clone`, `cd tint`, then `gt init --trunk master`.
 - Each button's `aria-label` equals `Copy ${data-code}` (after HTML-entity decoding).
 - At least one button's `data-code` references `https://tint.sh/tint` (install-URL drift guard).
 - Page-wide copy wiring (`checkCopyButtons`) verifies a single bundled script ships the literal `[data-copy]` selector — applies to every CopyCommand, including the install tabs.

@@ -74,7 +74,6 @@ const { code, variant = 'panel' } = Astro.props;
     appearance: none;
     -webkit-appearance: none;
     box-sizing: border-box;
-    border: none;
     margin: 0;
     font: inherit;
     text-align: left;
@@ -97,6 +96,7 @@ const { code, variant = 'panel' } = Astro.props;
      frame shows through. Card variant skips this and inherits bg +
      border from the global .code-card class. */
   .copy-command:not(.code-card) {
+    border: none;
     background: transparent;
   }
 

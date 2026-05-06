@@ -653,9 +653,18 @@ function checkInstallTabs(html: string): void {
   // Worker's `tint_download` event.
   const installUrls = buttons.map((tag) => decodeHtmlEntities(getAttr(tag, 'data-code') ?? ''));
   const hasShortInstallUrl = installUrls.some((code) => code.includes('https://tint.sh/tint'));
+  const hasGraphiteInit = installUrls.some(
+    (code) =>
+      code ===
+      'git clone git@github.com:corygabrielsen/tint.git && cd tint && gt init --trunk master',
+  );
   check(
     hasShortInstallUrl,
     `no install button references https://tint.sh/tint — install URL drift (saw: ${installUrls.join(' | ')})`,
+  );
+  check(
+    hasGraphiteInit,
+    `no install button initializes Graphite with gt init after cloning — gt clone is not a documented Graphite clone wrapper (saw: ${installUrls.join(' | ')})`,
   );
 
   // The install command-tabs panels are CopyCommand instances; copy wiring is
