@@ -610,15 +610,15 @@ function extractInstallTabs(html: string): string | undefined {
   if (outerStart === undefined) return undefined;
 
   fieldset.lastIndex = outerStart;
-  let depth = 0;
+  let fieldsetDepth = 0;
   for (let match = fieldset.exec(html); match; match = fieldset.exec(html)) {
     if (match[0].startsWith('</')) {
-      depth -= 1;
+      fieldsetDepth -= 1;
     } else {
-      depth += 1;
+      fieldsetDepth += 1;
     }
 
-    if (depth === 0) {
+    if (fieldsetDepth === 0) {
       return html.slice(outerStart, fieldset.lastIndex);
     }
   }
