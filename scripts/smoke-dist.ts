@@ -585,34 +585,52 @@ function checkLabelControlWiring(html: string): void {
   }
 }
 
-// Extract the install widget's CommandTabs fieldset (the first .command-tabs
-// in the document, which is the install tabs at the top of the page) so
-// per-install assertions don't accidentally couple to the rest of the
-// document. Without this, a `data-copy` button added anywhere else on the
-// homepage (e.g. a future "copy share link" button) would break a check
-// that's only meant to protect the install tabs. Per-feature CommandTabs
-// (e.g., the cd-hook bash/zsh tabs) come later in the document, so the
-// non-greedy first-match returns the install tabs every time.
-//
-// Two-level nesting: the regex's non-greedy `</fieldset>` would close on
-// the first inner `</fieldset>` if the install tabs ever nested another
-// CommandTabs inside one of its panels. They don't today, but if they
-// later do, switch this to a balanced match. Per-feature tabs do not
-// share this concern: this extractor is scoped to the install tabs only.
+// Extract the install widget's outer CommandTabs fieldset (the first
+// .command-tabs in the document, which is the install tabs at the top of
+// the page) so per-install assertions don't accidentally couple to the
+// rest of the document. The install widget nests a second CommandTabs for
+// git checkout methods, so this uses a small balanced fieldset scan
+// instead of a non-greedy `</fieldset>` regex that would stop at the inner
+// widget.
 function extractInstallTabs(html: string): string | undefined {
-  const match = html.match(
-    /<fieldset\b[^>]*\bclass\s*=\s*"[^"]*\bcommand-tabs\b[^"]*"[\s\S]*?<\/fieldset>/,
-  );
-  return match?.[0];
+  const fieldset = /<\/?fieldset\b[^>]*>/gi;
+  let start: number | undefined;
+
+  for (const match of html.matchAll(fieldset)) {
+    const tag = match[0];
+    if (tag.startsWith('</')) continue;
+
+    const classes = getAttr(tag, 'class')?.split(/\s+/) ?? [];
+    if (classes.includes('command-tabs')) {
+      start = match.index;
+      break;
+    }
+  }
+
+  if (start === undefined) return undefined;
+
+  fieldset.lastIndex = start;
+  let depth = 0;
+  for (let match = fieldset.exec(html); match; match = fieldset.exec(html)) {
+    if (match[0].startsWith('</')) {
+      depth -= 1;
+    } else {
+      depth += 1;
+    }
+
+    if (depth === 0) {
+      return html.slice(start, fieldset.lastIndex);
+    }
+  }
+
+  return undefined;
 }
 
 // Structural assertions for the install widget. These catch the regression
-// classes the click handler is most exposed to: missing/wrong data-code,
-// aria-label drift, and — most importantly — the inlined <script> losing
-// the `.install command-tabs [data-copy]` selector that wires the handler to
-// the rendered buttons. Without this last check, a selector or bundling
-// regression would ship silently because nothing exercises the handler
-// at runtime in CI.
+// classes specific to the rendered install commands: missing/wrong
+// data-code values, aria-label drift, and install URL / checkout-command
+// drift. Page-wide copy-button script wiring is checked separately by
+// checkCopyButtons.
 function checkInstallTabs(html: string): void {
   const widget = extractInstallTabs(html);
   check(Boolean(widget), 'install command-tabs fieldset not found in rendered HTML');
@@ -623,10 +641,7 @@ function checkInstallTabs(html: string): void {
   const buttons = [...widget.matchAll(/<button\b[^>]*\bdata-copy\b[^>]*>/g)].map((m) => m[0]);
   // 2 top-level (brew + curl) + 5 git sub-tabs (https/ssh/gh/gt/jj) —
   // the git outer tab itself has no CopyCommand, only nested ones
-  // inside the git panel. The non-greedy fieldset extraction ends at
-  // the nested fieldset's closing tag, which still includes all 7
-  // buttons because the nested fieldset is the last element in the
-  // outer's panels container.
+  // inside the git panel.
   check(
     buttons.length === 7,
     `expected 7 install command-tabs buttons (brew + curl + 5 git), found ${buttons.length}`,
