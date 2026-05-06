@@ -1,0 +1,147 @@
+---
+// Click-to-copy command button. Wraps a HighlightedCommand with a
+// clickable button + icon column; the surrounding script (hoisted by
+// Astro) wires the click handler globally on `[data-copy]`.
+//
+// Defaults to "no chrome" (transparent, no border) so it sits cleanly
+// inside containers that already provide a frame — e.g. CommandTabs
+// panels, where the fieldset draws the border. Pass `variant="card"`
+// when used standalone (per-feature card) to add a border + shaded
+// background so the button reads as a self-contained surface.
+import HighlightedCommand from './HighlightedCommand.astro';
+
+interface Props {
+  code: string;
+  /**
+   * Visual treatment of the button.
+   *  - 'panel' (default): no border, transparent — for use inside a
+   *    container that draws its own frame.
+   *  - 'card': bordered + shaded — for standalone use as a self-contained
+   *    copyable surface.
+   */
+  variant?: 'panel' | 'card';
+}
+
+const { code, variant = 'panel' } = Astro.props;
+---
+
+<button
+  type="button"
+  class:list={['copy-command', variant === 'card' && 'code-card']}
+  data-copy
+  data-code={code}
+  aria-label={`Copy ${code}`}
+>
+  <HighlightedCommand code={code} />
+  <span class="copy-status">
+    <svg
+      class="icon-copy"
+      width="16"
+      height="16"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      stroke-width="1.5"
+      stroke-linecap="square"
+      aria-hidden="true"
+    >
+      <path d="M8.75 8.75V2.75H21.25V15.25H15.25M15.25 8.75H2.75V21.25H15.25V8.75Z" />
+    </svg>
+    <svg
+      class="icon-check"
+      width="16"
+      height="16"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      stroke-width="2"
+      stroke-linecap="square"
+      aria-hidden="true"
+    >
+      <path d="M2.75 15.0938L9 20.25L21.25 3.75" />
+    </svg>
+    <span class="copy-announce sr-only" data-copy-announce aria-live="polite"></span>
+  </span>
+</button>
+
+<style>
+  /* Targeted resets (instead of `all: unset`) so the bg-painting
+     responsibility can sit cleanly on .code-card without a specificity
+     fight. `all: unset` would set background to its initial value
+     (transparent) at scoped specificity, beating .code-card's
+     var(--code-bg) and leaving card-variant buttons unpainted. */
+  .copy-command {
+    appearance: none;
+    -webkit-appearance: none;
+    box-sizing: border-box;
+    margin: 0;
+    font: inherit;
+    text-align: left;
+    display: flex;
+    /* Anchor the icon to the top of the row so it sits beside the first
+       line of long wrapped commands instead of drifting to the visual
+       middle of a multi-line block. */
+    align-items: flex-start;
+    gap: 0.75rem;
+    width: 100%;
+    max-width: 100%;
+    min-width: 0;
+    padding: 0.75rem 1rem;
+    color: var(--fg);
+    font-family: var(--mono);
+    cursor: pointer;
+  }
+
+  /* Default (panel) variant: transparent so the surrounding container's
+     frame shows through. Card variant skips this and inherits bg +
+     border from the global .code-card class. */
+  .copy-command:not(.code-card) {
+    border: none;
+    background: transparent;
+  }
+
+  .copy-command:hover {
+    background: color-mix(in srgb, var(--code-bg) 90%, var(--fg) 10%);
+  }
+
+  .copy-command:focus-visible {
+    outline: 2px solid var(--fg);
+    outline-offset: -2px;
+  }
+
+  .copy-status {
+    display: inline-flex;
+    align-items: center;
+    flex-shrink: 0;
+    color: color-mix(in srgb, var(--muted) 65%, var(--bg) 35%);
+  }
+
+  .icon-copy {
+    display: block;
+    width: 16px;
+    height: 16px;
+  }
+
+  .icon-check {
+    display: none;
+    width: 16px;
+    height: 16px;
+  }
+
+  .copy-command[data-copied] .icon-copy {
+    display: none;
+  }
+
+  .copy-command[data-copied] .icon-check {
+    display: block;
+  }
+</style>
+
+<script>
+  import { wireCopyButtons } from '~/scripts/copy-buttons';
+
+  // Single page-wide wiring keyed on the data-copy contract. Every
+  // CopyCommand instance picks up the handler regardless of where it's
+  // used (install widget, per-feature card, future surfaces).
+  wireCopyButtons('[data-copy]');
+</script>

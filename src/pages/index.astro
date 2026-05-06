@@ -1,7 +1,8 @@
 ---
 import Layout from '~/layouts/Layout.astro';
 import GitHubMark from '~/components/GitHubMark.astro';
-import InstallWidget from '~/components/InstallWidget.astro';
+import CommandTabs from '~/components/CommandTabs.astro';
+import CopyCommand from '~/components/CopyCommand.astro';
 
 const repoUrl = 'https://github.com/corygabrielsen/tint';
 
@@ -15,15 +16,36 @@ const repoUrl = 'https://github.com/corygabrielsen/tint';
 // per-asset `download_count`; the Worker fires a Plausible
 // `tint_download` event in parallel.
 //
-// `as const` narrows this to a 2-tuple so it satisfies InstallWidget's
-// `readonly [Command, Command]` prop. Adding a third install method here
-// without first extending the widget's :nth-of-type CSS would now be a
-// compile error rather than a silently broken tab.
-const installCommands = [
+// `as const` narrows the tuple so labels stay accurate to source order.
+// CommandTabs's :nth-of-type CSS supports up to 6 tabs per level — adding
+// further install methods or sub-methods renders correctly without
+// further changes.
+//
+// CommandTabs selects the first child with `default: true`, falling back
+// to index 0. Keep https leftmost to mirror GitHub's clone dropdown, and
+// mark ssh default-selected for the common git-clone-via-ssh workflow.
+const installTabs = [
   { label: 'brew', code: 'brew install corygabrielsen/tint/tint' },
   {
     label: 'curl',
     code: 'curl -fsSL https://tint.sh/tint -o ~/.local/bin/tint && chmod +x ~/.local/bin/tint',
+  },
+  {
+    label: 'git',
+    tabs: [
+      // The first three mirror GitHub's clone dropdown. Graphite has no
+      // documented clone wrapper, so its tab clones with git and then
+      // initializes Graphite explicitly.
+      { label: 'https', code: 'git clone https://github.com/corygabrielsen/tint.git' },
+      { label: 'ssh',   code: 'git clone git@github.com:corygabrielsen/tint.git', default: true },
+      { label: 'gh',    code: 'gh repo clone corygabrielsen/tint' },
+      {
+        label: 'gt',
+        code: 'git clone git@github.com:corygabrielsen/tint.git && cd tint && gt init --trunk master',
+      },
+      { label: 'jj',    code: 'jj git clone git@github.com:corygabrielsen/tint.git' },
+    ],
+    legend: 'Repository checkout method',
   },
 ] as const;
 
@@ -47,6 +69,9 @@ const themeColors = [
   '#AC5374',
 ];
 
+const cdHookBody = `mkdir -p /tmp/tinted && echo nord > /tmp/tinted/.tint
+cd /tmp/tinted`;
+
 const featureDemos = [
   {
     id: 'apply-by-name',
@@ -58,6 +83,20 @@ const featureDemos = [
     ariaLabel: 'Applying built-in tint themes by name',
   },
   {
+    id: 'cd-hook',
+    title: 'Automatically switch themes when changing directories',
+    description: 'Install the shell hook once, then add `.tint` files to automatically switch themes when changing directories. Supports Bash and Zsh.',
+    // bash and zsh emit different hook scripts, so the eval target differs
+    // between tabs while the rest of the snippet is identical.
+    commands: [
+      { label: 'bash', code: `eval "$(tint hook bash)"\n${cdHookBody}` },
+      { label: 'zsh',  code: `eval "$(tint hook zsh)"\n${cdHookBody}` },
+    ] as const,
+    src: 'demo-cd-hook.mp4',
+    poster: 'demo-cd-hook-poster.png',
+    ariaLabel: 'Automatically applying tint themes when changing directories',
+  },
+  {
     id: 'picker',
     title: 'Browse and select themes interactively',
     description: 'Run `tint` with no arguments to scroll and select themes interactively in your terminal.',
@@ -65,16 +104,6 @@ const featureDemos = [
     src: 'demo-picker.mp4',
     poster: 'demo-picker-poster.png',
     ariaLabel: 'Selecting a tint theme in the interactive picker',
-  },
-  {
-    id: 'cd-hook',
-    title: 'Switch themes when changing directories',
-    description: 'Install the shell hook once, then add `.tint` files to automatically switch themes when changing directories. Supports Bash and Zsh.',
-    command: `eval "$(tint hook bash)"
-echo dracula > .tint`,
-    src: 'demo-cd-hook.mp4',
-    poster: 'demo-cd-hook-poster.png',
-    ariaLabel: 'Automatically applying tint themes when changing directories',
   },
   {
     id: 'custom-theme',
@@ -132,7 +161,7 @@ function inlineDescriptionParts(text: string): InlineDescriptionPart[] {
       <p class="tagline">Terminal theme switcher.</p>
     </header>
 
-    <InstallWidget commands={installCommands} />
+    <CommandTabs tabs={installTabs} legend="Install method" />
 
     <div class="demo-frame" data-demo-frame>
       <video
@@ -144,16 +173,16 @@ function inlineDescriptionParts(text: string): InlineDescriptionPart[] {
         muted
         playsinline
         preload="metadata"
-        width="824"
-        height="450"
-        aria-label="tint demo: picker, CLI, cd-hook auto-tinting, custom theme"
+        width="1704"
+        height="864"
+        aria-label="tint demo: CLI, cd-hook auto-tinting, picker, custom theme"
       ></video>
       <img
         class="demo-poster"
         data-demo-poster
         src="demo-poster.png"
-        width="824"
-        height="450"
+        width="1704"
+        height="864"
         alt=""
         aria-hidden="true"
         loading="eager"
@@ -175,46 +204,11 @@ function inlineDescriptionParts(text: string): InlineDescriptionPart[] {
                 part.code ? <code>{part.text}</code> : part.text,
               )}
             </p>
-            <button
-              type="button"
-              class="feature-command"
-              data-feature-command
-              data-feature-copy
-              data-copy
-              data-code={demo.command}
-              aria-label={`Copy ${demo.command}`}
-            >
-              <code>{demo.command}</code>
-              <span class="feature-copy-status">
-                <svg
-                  class="icon-copy"
-                  width="16"
-                  height="16"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  stroke-width="1.5"
-                  stroke-linecap="square"
-                  aria-hidden="true"
-                >
-                  <path d="M8.75 8.75V2.75H21.25V15.25H15.25M15.25 8.75H2.75V21.25H15.25V8.75Z" />
-                </svg>
-                <svg
-                  class="icon-check"
-                  width="16"
-                  height="16"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  stroke-width="2"
-                  stroke-linecap="square"
-                  aria-hidden="true"
-                >
-                  <path d="M2.75 15.0938L9 20.25L21.25 3.75" />
-                </svg>
-                <span class="feature-copy-announce sr-only" data-copy-announce aria-live="polite"></span>
-              </span>
-            </button>
+            {demo.commands ? (
+              <CommandTabs tabs={demo.commands} legend="Shell hook" id={`cmd-${demo.id}`} />
+            ) : (
+              <CopyCommand code={demo.command} variant="card" />
+            )}
           </div>
           <div class="demo-frame" data-demo-frame>
             <video
@@ -226,16 +220,16 @@ function inlineDescriptionParts(text: string): InlineDescriptionPart[] {
               muted
               playsinline
               preload="metadata"
-              width="824"
-              height="450"
+              width="1704"
+              height="864"
               aria-label={demo.ariaLabel}
             ></video>
             <img
               class="demo-poster"
               data-demo-poster
               src={demo.poster}
-              width="824"
-              height="450"
+              width="1704"
+              height="864"
               alt=""
               aria-hidden="true"
               loading="eager"
@@ -258,14 +252,6 @@ function inlineDescriptionParts(text: string): InlineDescriptionPart[] {
 
     <p class="copyright">© 2026 Cory Gabrielsen</p>
   </main>
-
-<script>
-  import { wireCopyButtons } from '~/scripts/copy-buttons';
-
-  wireCopyButtons('[data-feature-copy]', {
-    errorPrefix: 'Feature command clipboard write failed',
-  });
-</script>
 
 <script>
   import { wireDemoVideos } from '~/scripts/demo-videos';
