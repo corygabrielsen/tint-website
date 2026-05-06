@@ -594,7 +594,7 @@ function checkLabelControlWiring(html: string): void {
 // widget.
 function extractInstallTabs(html: string): string | undefined {
   const fieldset = /<\/?fieldset\b[^>]*>/gi;
-  let start: number | undefined;
+  let outerStart: number | undefined;
 
   for (const match of html.matchAll(fieldset)) {
     const tag = match[0];
@@ -602,14 +602,14 @@ function extractInstallTabs(html: string): string | undefined {
 
     const classes = getAttr(tag, 'class')?.split(/\s+/) ?? [];
     if (classes.includes('command-tabs')) {
-      start = match.index;
+      outerStart = match.index;
       break;
     }
   }
 
-  if (start === undefined) return undefined;
+  if (outerStart === undefined) return undefined;
 
-  fieldset.lastIndex = start;
+  fieldset.lastIndex = outerStart;
   let depth = 0;
   for (let match = fieldset.exec(html); match; match = fieldset.exec(html)) {
     if (match[0].startsWith('</')) {
@@ -619,7 +619,7 @@ function extractInstallTabs(html: string): string | undefined {
     }
 
     if (depth === 0) {
-      return html.slice(start, fieldset.lastIndex);
+      return html.slice(outerStart, fieldset.lastIndex);
     }
   }
 

@@ -21,9 +21,9 @@ const repoUrl = 'https://github.com/corygabrielsen/tint';
 // further install methods or sub-methods renders correctly without
 // further changes.
 //
-// Sub-tab order matters: https stays leftmost to mirror GitHub's clone
-// dropdown, while ssh is marked default because git-clone-via-ssh is the
-// most common developer workflow for this audience.
+// CommandTabs selects the first child with `default: true`, falling back
+// to index 0. Keep https leftmost to mirror GitHub's clone dropdown, and
+// mark ssh default-selected for the common git-clone-via-ssh workflow.
 const installTabs = [
   { label: 'brew', code: 'brew install corygabrielsen/tint/tint' },
   {
